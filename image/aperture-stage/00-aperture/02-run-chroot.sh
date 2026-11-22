@@ -5,12 +5,10 @@ echo "Aperture Laboratories  -  Aperture Lab OS" > /etc/issue
 echo "Aperture Laboratories" > /etc/issue.net
 rm -f /etc/rpi-issue /etc/motd
 echo "aperture-lab" > /etc/hostname
-# --- Quiet boot so the amber terminal splash is all you see
+# --- Keep the first boot visible on screen (no splash) so the setup wizard can be seen; the installer turns the boot animation on later
 for f in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
-  [ -f "$f" ] && ! grep -q 'plymouth.ignore-serial-consoles' "$f" && sed -i 's/$/ quiet splash plymouth.ignore-serial-consoles logo.nologo vt.global_cursor_default=0/' "$f" || true
-done
-for f in /boot/firmware/config.txt /boot/config.txt; do
-  [ -f "$f" ] && ! grep -q '^disable_splash' "$f" && echo 'disable_splash=1' >> "$f" || true
+  [ -f "$f" ] && sed -i 's/ quiet//g; s/ splash//g; s/ plymouth.ignore-serial-consoles//g' "$f" || true
+  [ -f "$f" ] && ! grep -q 'console=tty1' "$f" && sed -i 's/$/ console=tty1/' "$f" || true
 done
 # --- Services: first-boot wizard runs once, then turns the graphical login on
 systemctl disable lightdm 2>/dev/null || true
