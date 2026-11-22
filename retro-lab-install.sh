@@ -106,8 +106,8 @@ def login_svg(W=1920, H=1080):
     t = THEMES["night"]; F = 'font-family="Gelasio,Georgia,DejaVu Serif,serif"'
     stops = "".join(f'<stop offset="{i/(len(t["bg"])-1)}" stop-color="{c}"/>' for i, c in enumerate(t["bg"]))
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">{stops}</linearGradient><filter id="bl" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="70"/></filter></defs>
-<rect x="-400" y="-400" width="2720" height="1880" fill="url(#bg)"/><circle cx="960" cy="190" r="260" fill="{t["halo"]}" filter="url(#bl)" opacity=".45"/>
-{logo(960, 180, 100)}<g {F}><text x="960" y="375" font-size="84" font-weight="900" text-anchor="middle" fill="{t["word"]}">aperture</text><text x="960" y="418" font-size="24" text-anchor="middle" fill="{t["sub"]}" letter-spacing="18" font-style="italic">LABORATORIES</text></g></svg>'''
+<rect x="-400" y="-400" width="2720" height="1880" fill="url(#bg)"/><circle cx="960" cy="130" r="260" fill="{t["halo"]}" filter="url(#bl)" opacity=".45"/>
+{logo(960, 125, 100)}<g {F}><text x="960" y="320" font-size="84" font-weight="900" text-anchor="middle" fill="{t["word"]}">aperture</text><text x="960" y="363" font-size="24" text-anchor="middle" fill="{t["sub"]}" letter-spacing="18" font-style="italic">LABORATORIES</text></g></svg>'''
 def png(svgtext, path, w=None):
     tmp = path + ".svg"; open(tmp, "w").write(svgtext)
     subprocess.run(["rsvg-convert", tmp, "-o", path], check=True); os.remove(tmp)
@@ -866,19 +866,17 @@ sudo cp /tmp/aperture-assets/login.png /tmp/aperture-assets/wall.png /tmp/apertu
 sudo mkdir -p /usr/share/themes/ApertureLogin/gtk-3.0
 printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=ApertureLogin\nComment=Aperture Laboratories login\n\n[X-GNOME-Metatheme]\nGtkTheme=ApertureLogin\n' | sudo tee /usr/share/themes/ApertureLogin/index.theme >/dev/null
 sudo tee /usr/share/themes/ApertureLogin/gtk-3.0/gtk.css >/dev/null <<'GTK'
-* { font-family: "DejaVu Serif", serif; font-size: 16px; font-weight: bold; color: #f6e7c1; text-shadow: none; box-shadow: none; }
-#login_window, #login-window { background-color: #2a1b14; background-image: none; border: none; border-radius: 0; padding: 0; }
-#login_window > *, #login-window > * { margin: 12px; padding: 20px; border: 3px solid #e0873a; border-radius: 30px; background-color: #2a1b14; background-image: linear-gradient(#3a2518, #2a1b14); }
-#content_frame, #login_frame, #login_box, #user_box { border: none; background: none; background-image: none; padding: 0; margin: 0; }
-#panel_window, #panel-window { background-color: rgba(42,27,20,0.0); background-image: none; border: none; }
-image { opacity: 0; margin: 0 -105px 0 0; }
-combobox, combobox button, combobox * { background-image: none; background-color: transparent; border: none; color: #e7c06a; font-style: italic; }
-entry { background-color: #1c110b; background-image: none; color: #f6e7c1; caret-color: #e0873a; border: 2px solid #e0873a; border-radius: 16px; padding: 8px 14px; min-height: 24px; }
+* { font-family: "DejaVu Serif", serif; font-size: 16px; font-weight: bold; color: #f6e7c1; text-shadow: none; box-shadow: none; border: none; border-radius: 0; background-image: none; background-color: transparent; padding: 0; margin: 0; }
+#login_window, #login-window { background-color: #2a1b14; border: 3px solid #e0873a; padding: 26px; }
+#panel_window, #panel-window { background-color: rgba(42,27,20,0.0); }
+image { opacity: 0; margin: 0 -80px 0 0; }
+combobox, combobox * { color: #e7c06a; font-style: italic; }
+entry { background-color: #1c110b; color: #f6e7c1; caret-color: #e0873a; border: 2px solid #e0873a; border-radius: 16px; padding: 8px 14px; min-height: 24px; margin: 6px 0; }
 entry:focus { border-color: #ffd08a; }
-button { background-color: #e0873a; background-image: none; border: 2px solid #ffd08a; border-radius: 16px; padding: 7px 22px; }
+button { background-color: #e0873a; border: 2px solid #ffd08a; border-radius: 16px; padding: 7px 22px; margin: 6px 4px 0 4px; }
 button label { color: #2a1b14; }
 button:hover { background-color: #ffd08a; }
-menu, menuitem, popover { background-color: #3a2518; color: #f6e7c1; }
+menu, menuitem, popover { background-color: #3a2518; color: #f6e7c1; padding: 4px; }
 menuitem:hover { background-color: #e0873a; color: #2a1b14; }
 GTK
 # Rename the session so it no longer says "Raspberry Pi OS"

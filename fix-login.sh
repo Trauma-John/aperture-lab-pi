@@ -3,6 +3,139 @@
 set -e
 [ "$(id -u)" = "0" ] && { echo "Run as your normal user, not sudo."; exit 1; }
 mkdir -p ~/.local/bin ~/.local/share/retro-lab
+sudo apt-get install -y librsvg2-bin >/dev/null
+cat > ~/.local/bin/retro-lab-render <<'PYEOF'
+#!/usr/bin/env python3
+"""Aperture retro-lab wallpaper renderer. Draws the desktop as an SVG with live stats."""
+import os, sys, json, time, socket, subprocess, shutil, datetime
+HOME = os.path.expanduser("~")
+CFG = HOME + "/.config/retro-lab/config"
+CACHE = HOME + "/.cache/retro-lab"
+THEMES = {
+ "night": dict(bg=["#2a1b14","#3a2518"], panel="rgba(255,225,170,.08)", pstroke="rgba(255,225,170,.18)", text="#f0e0bd", sub="#c9a77a", acc="#e0873a", acc2="#e7c06a", track="rgba(255,225,170,.12)", halo="#d27a35", ho=.5, word="#f0e0bd", glow=60),
+ "day":   dict(bg=["#f3e6c6","#ead7ac"], panel="rgba(122,59,20,.07)", pstroke="rgba(122,59,20,.15)", text="#4a2a16", sub="#8a5a38", acc="#d27a35", acc2="#d9a93f", track="rgba(122,59,20,.12)", halo="#e7a947", ho=.5, word="#7a3b14", glow=70),
+ "dusk":  dict(bg=["#3d2016","#8a4426","#d98a3e","#ecc275"], panel="rgba(60,25,10,.28)", pstroke="rgba(255,235,200,.22)", text="#fbeed0", sub="#f0d6a4", acc="#fff0cf", acc2="#f2b45a", track="rgba(255,235,200,.2)", halo="#fff0cf", ho=.18, word="#fff6e0", glow=60),
+}
+def config():
+    c = dict(mode="auto", dawn="6", day="8", dusk="17", night="20")
+    try:
+        for l in open(CFG):
+            if "=" in l and not l.startswith("#"):
+                k, v = l.strip().split("=", 1); c[k.strip()] = v.strip()
+    except OSError: pass
+    return c
+def pick_theme(c):
+    if c["mode"] in THEMES: return c["mode"]
+    h = datetime.datetime.now().hour
+    dawn, day, dusk, night = (int(c[k]) for k in ("dawn", "day", "dusk", "night"))
+    if day <= h < dusk: return "day"
+    if dawn <= h < day or dusk <= h < night: return "dusk"
+    return "night"
+def logo(x, y, r, i="L"):
+    return f'''<g transform="translate({x},{y}) scale({r/210})"><defs><clipPath id="c{i}"><circle r="210"/></clipPath><mask id="m{i}"><rect x="-220" y="-220" width="440" height="440" fill="#fff"/><g fill="#000"><rect x="-220" y="-150" width="440" height="14"/><rect x="-220" y="-95" width="440" height="14"/><rect x="-220" y="95" width="440" height="14"/><rect x="-220" y="150" width="440" height="14"/><circle r="62"/><rect x="-220" y="-14" width="440" height="14"/></g></mask><linearGradient id="g{i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a4a22"/><stop offset=".45" stop-color="#d27a35"/><stop offset=".8" stop-color="#e7a947"/><stop offset="1" stop-color="#e3c26a"/></linearGradient></defs><g clip-path="url(#c{i})" mask="url(#m{i})"><rect x="-220" y="-220" width="440" height="440" fill="url(#g{i})"/></g></g>'''
+def iris(cx, cy, t):
+    import math
+    R, r = 56, 20; c = t["acc"]; g = t["bg"][0]
+    l = "".join(f'<line x1="{r*math.cos(math.radians(k*60)):.1f}" y1="{r*math.sin(math.radians(k*60)):.1f}" x2="{R*math.cos(math.radians(k*60+62)):.1f}" y2="{R*math.sin(math.radians(k*60+62)):.1f}" stroke="{g}" stroke-width="3.5"/>' for k in range(6))
+    return f'<g transform="translate({cx},{cy})"><circle r="{R}" fill="{c}" opacity=".92"/>{l}<circle r="{r}" fill="{g}"/></g>'
+def sh(cmd, t=2):
+    try: return subprocess.run(cmd, capture_output=True, text=True, timeout=t).stdout.strip()
+    except Exception: return ""
+def stats():
+    os.makedirs(CACHE, exist_ok=True)
+    cur = {}
+    for l in open("/proc/stat"):
+        if l.startswith("cpu"):
+            p = l.split(); v = list(map(int, p[1:9])); cur[p[0]] = [sum(v) - v[3] - v[4], sum(v)]
+    prev = {}
+    try: prev = json.load(open(CACHE + "/stat.json"))
+    except Exception: pass
+    json.dump(cur, open(CACHE + "/stat.json", "w"))
+    def pct(k):
+        if k not in prev: return 0
+        dt = cur[k][1] - prev[k][1]; return 100 * (cur[k][0] - prev[k][0]) / dt if dt > 0 else 0
+    cores = [pct(k) for k in sorted((k for k in cur if k != "cpu"), key=lambda s: int(s[3:]))]
+    mi = {l.split(":")[0]: int(l.split()[1]) for l in open("/proc/meminfo")}
+    mem = 100 * (1 - mi["MemAvailable"] / mi["MemTotal"])
+    try: temp = int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000
+    except Exception: temp = 0
+    du = shutil.disk_usage("/"); disk = 100 * du.used / du.total
+    fan = ""
+    for d in os.listdir("/sys/class/hwmon") if os.path.isdir("/sys/class/hwmon") else []:
+        try: fan = open(f"/sys/class/hwmon/{d}/fan1_input").read().strip(); break
+        except Exception: pass
+    ts = sh(["tailscale", "ip", "-4"]).split("\n")[0] or "offline"
+    up = float(open("/proc/uptime").read().split()[0]); upS = f"{int(up//86400)}d {int(up%86400//3600)}h" if up > 86400 else f"{int(up//3600)}h {int(up%3600//60)}m"
+    return dict(cpu=pct("cpu"), cores=cores, mem=mem, temp=temp, disk=disk, fan=fan, ts=ts, up=upS)
+def bar(x, y, w, v, t, col):
+    return f'<rect x="{x}" y="{y}" width="{w}" height="12" rx="6" fill="{t["track"]}"/><rect x="{x}" y="{y}" width="{max(12, w*min(v,100)/100):.0f}" height="12" rx="6" fill="{col}"/>'
+def svg(tn, widgets=True, W=1920, H=1080, s=None):
+    t = THEMES[tn]; host = socket.gethostname()
+    stops = "".join(f'<stop offset="{i/(len(t["bg"])-1)}" stop-color="{c}"/>' for i, c in enumerate(t["bg"]))
+    out = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">{stops}</linearGradient><filter id="sh" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="{t["glow"]}"/></filter></defs>
+<rect x="-400" y="-400" width="2720" height="1880" fill="url(#bg)"/>
+<circle cx="960" cy="470" r="330" fill="{t["halo"]}" filter="url(#sh)" opacity="{t["ho"]}"/>'''
+    F = 'font-family="Gelasio,Georgia,DejaVu Serif,serif"'
+    if widgets and s:
+        P = lambda x, y, w, h: f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="26" fill="{t["panel"]}" stroke="{t["pstroke"]}" stroke-width="1.5"/>'
+        out += P(50,60,600,150) + P(670,60,190,190) + P(1130,50,400,190) + P(1550,50,140,190) + P(1710,50,160,190) + P(1600,770,270,250)
+        now = datetime.datetime.now()
+        n = max(1, len(s["cores"])); cw = 300 / n
+        cb = "".join(f'<rect x="{1160+i*cw+6:.0f}" y="{215-max(10,c*1.4):.0f}" width="{cw-14:.0f}" height="{max(10,c*1.4):.0f}" rx="8" fill="{t["acc"] if i%2 else t["acc2"]}" opacity=".85"/>' for i, c in enumerate(s["cores"]))
+        out += f'''<g {F} fill="{t["text"]}">
+<g font-size="17" fill="{t["sub"]}" letter-spacing="2"><text x="80" y="100">SYSTEM · {host.upper()}</text><text x="700" y="100">DISK</text><text x="1630" y="810">COOLING</text><text x="1160" y="85">CORES</text></g>
+<text x="80" y="145" font-size="21"><tspan fill="{t["acc"] if tn!="dusk" else t["acc2"]}" font-weight="900">Tailscale</tspan>   {s["ts"]}</text><text x="80" y="185" font-size="21" opacity=".85">Uptime   {s["up"]}</text>
+<text x="700" y="155" font-size="44" font-weight="900">{s["disk"]:.0f}%</text>{bar(700,180,130,s["disk"],t,t["acc2"])}
+<text x="1090" y="105" font-size="56" text-anchor="end" font-weight="900">{now:%H:%M}</text><text x="1090" y="160" font-size="34" text-anchor="end" opacity=".8">{now:%a %d %b}</text>
+{cb}
+<text x="1568" y="105" font-size="32" >{s["cpu"]:.0f}%</text><text x="1568" y="155" font-size="32">{s["mem"]:.0f}%</text><text x="1568" y="205" font-size="32">{s["temp"]:.0f}°</text>
+<g font-size="13" fill="{t["sub"]}" text-anchor="end"><text x="1676" y="105">CPU</text><text x="1676" y="155">MEM</text><text x="1676" y="205">TEMP</text></g>
+{iris(1790,145,t)}
+<text x="1630" y="890" font-size="58" font-weight="900">{s["fan"] or "—"}<tspan font-size="22"> rpm</tspan></text>{bar(1630,925,200,min(100,(int(s["fan"] or 0))/50),t,t["acc"])}{bar(1630,965,200,s["temp"],t,t["acc2"])}
+<text x="70" y="1020" font-size="30" fill="{t["sub"]}" font-style="italic">user · {os.environ.get("USER","user")}</text></g>'''
+    out += logo(960, 470, 200)
+    out += f'''<g {F}><text x="960" y="835" font-size="120" font-weight="900" text-anchor="middle" fill="{t["word"]}">aperture</text><text x="960" y="895" font-size="34" text-anchor="middle" fill="{t["sub"]}" letter-spacing="26" font-style="italic">LABORATORIES</text></g></svg>'''
+    return out
+def login_svg(W=1920, H=1080):
+    t = THEMES["night"]; F = 'font-family="Gelasio,Georgia,DejaVu Serif,serif"'
+    stops = "".join(f'<stop offset="{i/(len(t["bg"])-1)}" stop-color="{c}"/>' for i, c in enumerate(t["bg"]))
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">{stops}</linearGradient><filter id="bl" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="70"/></filter></defs>
+<rect x="-400" y="-400" width="2720" height="1880" fill="url(#bg)"/><circle cx="960" cy="130" r="260" fill="{t["halo"]}" filter="url(#bl)" opacity=".45"/>
+{logo(960, 125, 100)}<g {F}><text x="960" y="320" font-size="84" font-weight="900" text-anchor="middle" fill="{t["word"]}">aperture</text><text x="960" y="363" font-size="24" text-anchor="middle" fill="{t["sub"]}" letter-spacing="18" font-style="italic">LABORATORIES</text></g></svg>'''
+def png(svgtext, path, w=None):
+    tmp = path + ".svg"; open(tmp, "w").write(svgtext)
+    subprocess.run(["rsvg-convert", tmp, "-o", path], check=True); os.remove(tmp)
+def screen():
+    for f in sorted(__import__("glob").glob("/sys/class/drm/*/modes")):
+        try:
+            if open(f.replace("modes", "status")).read().strip() == "connected":
+                w, h = open(f).readline().strip().split("x"); return int(w), int(h.split("i")[0])
+        except Exception: pass
+    return 1920, 1080
+if __name__ == "__main__":
+    c = config()
+    if len(sys.argv) > 1 and sys.argv[1] == "static":   # login screen + boot logo (run during install)
+        out = sys.argv[2]; os.makedirs(out, exist_ok=True)
+        png(svg("night", False), out + "/wall.png")
+        png(login_svg(), out + "/login.png")
+        png(f'<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="-210 -210 420 420">{logo(0,0,210,"P")}</svg>', out + "/logo.png")
+        steps = [-150, -81, 0, 109, 164, 210]
+        for k in range(7):   # logo revealed stripe by stripe, for the boot splash
+            y = -220 if k == 0 else steps[k - 1]
+            png(f'<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="-210 -210 420 420"><clipPath id="rv"><rect x="-220" y="-220" width="440" height="{y+220}"/></clipPath><g clip-path="url(#rv)">{logo(0,0,210,"P")}</g></svg>', f"{out}/logo-{k}.png")
+        png('<svg xmlns="http://www.w3.org/2000/svg" width="900" height="200" viewBox="0 0 900 200"><g font-family="Gelasio,Georgia,DejaVu Serif,serif"><text x="450" y="105" font-size="110" font-weight="900" text-anchor="middle" fill="#f0e0bd">aperture</text><text x="450" y="160" font-size="32" font-style="italic" text-anchor="middle" fill="#c9a77a" letter-spacing="24">LABORATORIES</text></g></svg>', out + "/wordmark.png")
+        sys.exit()
+    if len(sys.argv) > 2 and sys.argv[1] == "preview":  # preview <theme> <file>
+        open(sys.argv[3], "w").write(svg(sys.argv[2], True, s=dict(cpu=26,cores=[20,45,80,30],mem=45,temp=50,disk=38,fan="2400",ts="100.64.0.7",up="3h 12m"))); sys.exit()
+    tn = pick_theme(c); W, H = screen()
+    os.makedirs(CACHE, exist_ok=True)
+    flip = "a" if int(time.time()//60) % 2 else "b"
+    path = f"{CACHE}/wall-{flip}.png"
+    png(svg(tn, True, W, H, stats()), path)
+    subprocess.run(["pcmanfm", "--set-wallpaper", path, "--wallpaper-mode=stretch"], stderr=subprocess.DEVNULL)
+
+PYEOF
+chmod +x ~/.local/bin/retro-lab-render
 sudo mkdir -p /usr/share/aperture
 python3 ~/.local/bin/retro-lab-render static /tmp/aperture-assets
 sudo cp /tmp/aperture-assets/login.png /tmp/aperture-assets/wall.png /tmp/aperture-assets/logo.png /usr/share/aperture/
@@ -10,19 +143,17 @@ sudo cp /tmp/aperture-assets/login.png /tmp/aperture-assets/wall.png /tmp/apertu
 sudo mkdir -p /usr/share/themes/ApertureLogin/gtk-3.0
 printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=ApertureLogin\nComment=Aperture Laboratories login\n\n[X-GNOME-Metatheme]\nGtkTheme=ApertureLogin\n' | sudo tee /usr/share/themes/ApertureLogin/index.theme >/dev/null
 sudo tee /usr/share/themes/ApertureLogin/gtk-3.0/gtk.css >/dev/null <<'GTK'
-* { font-family: "DejaVu Serif", serif; font-size: 16px; font-weight: bold; color: #f6e7c1; text-shadow: none; box-shadow: none; }
-#login_window, #login-window { background-color: #2a1b14; background-image: none; border: none; border-radius: 0; padding: 0; }
-#login_window > *, #login-window > * { margin: 12px; padding: 20px; border: 3px solid #e0873a; border-radius: 30px; background-color: #2a1b14; background-image: linear-gradient(#3a2518, #2a1b14); }
-#content_frame, #login_frame, #login_box, #user_box { border: none; background: none; background-image: none; padding: 0; margin: 0; }
-#panel_window, #panel-window { background-color: rgba(42,27,20,0.0); background-image: none; border: none; }
-image { opacity: 0; margin: 0 -105px 0 0; }
-combobox, combobox button, combobox * { background-image: none; background-color: transparent; border: none; color: #e7c06a; font-style: italic; }
-entry { background-color: #1c110b; background-image: none; color: #f6e7c1; caret-color: #e0873a; border: 2px solid #e0873a; border-radius: 16px; padding: 8px 14px; min-height: 24px; }
+* { font-family: "DejaVu Serif", serif; font-size: 16px; font-weight: bold; color: #f6e7c1; text-shadow: none; box-shadow: none; border: none; border-radius: 0; background-image: none; background-color: transparent; padding: 0; margin: 0; }
+#login_window, #login-window { background-color: #2a1b14; border: 3px solid #e0873a; padding: 26px; }
+#panel_window, #panel-window { background-color: rgba(42,27,20,0.0); }
+image { opacity: 0; margin: 0 -80px 0 0; }
+combobox, combobox * { color: #e7c06a; font-style: italic; }
+entry { background-color: #1c110b; color: #f6e7c1; caret-color: #e0873a; border: 2px solid #e0873a; border-radius: 16px; padding: 8px 14px; min-height: 24px; margin: 6px 0; }
 entry:focus { border-color: #ffd08a; }
-button { background-color: #e0873a; background-image: none; border: 2px solid #ffd08a; border-radius: 16px; padding: 7px 22px; }
+button { background-color: #e0873a; border: 2px solid #ffd08a; border-radius: 16px; padding: 7px 22px; margin: 6px 4px 0 4px; }
 button label { color: #2a1b14; }
 button:hover { background-color: #ffd08a; }
-menu, menuitem, popover { background-color: #3a2518; color: #f6e7c1; }
+menu, menuitem, popover { background-color: #3a2518; color: #f6e7c1; padding: 4px; }
 menuitem:hover { background-color: #e0873a; color: #2a1b14; }
 GTK
 # Rename the session so it no longer says "Raspberry Pi OS"
