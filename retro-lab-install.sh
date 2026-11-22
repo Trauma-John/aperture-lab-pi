@@ -755,7 +755,7 @@ cat > ~/.local/bin/retro-splash <<'RSP'
 case "$1" in on|off) sed -i "s/^splash=.*/splash=$1/" ~/.config/retro-lab/config; echo "Startup animation: $1";; *) echo "Use: retro-splash on | off";; esac
 RSP
 chmod +x ~/.local/bin/retro-splash
-grep -q '^splash=' ~/.config/retro-lab/config || echo "splash=on" >> ~/.config/retro-lab/config
+grep -q '^splash=' ~/.config/retro-lab/config || echo "splash=off" >> ~/.config/retro-lab/config
 cat > ~/.local/share/applications/lab-splash.desktop <<'DT'
 [Desktop Entry]
 Type=Application
@@ -917,6 +917,8 @@ PL
 sudo tee /usr/share/plymouth/themes/aperture/aperture.script >/dev/null <<'PS'
 Window.SetBackgroundTopColor(0.07, 0.04, 0.0);
 Window.SetBackgroundBottomColor(0.07, 0.04, 0.0);
+W = Window.GetWidth();
+H = Window.GetHeight();
 lines[0] = "APERTURE LABORATORIES BIOS v1.953";
 lines[1] = "CPU: ARM CORTEX-A76 x4 .......... OK";
 lines[2] = "MEMORY TEST: 16384K";
@@ -930,11 +932,11 @@ lines[9] = "ACOUSTICS ....................... WARM";
 lines[10] = "LOADING WIDGETS ................. OK";
 lines[11] = "AWAITING USER";
 n = 12;
-sz = Math.Int(Window.GetHeight() / 40);
+sz = Math.Int(H / 40);
 if (sz < 16) sz = 16;
 font = "DejaVu Sans Mono Bold " + sz;
-x0 = Window.GetWidth() * 0.08;
-y0 = Window.GetHeight() * 0.10;
+x0 = W * 0.08;
+y0 = H * 0.10;
 step = sz * 2.1;
 for (i = 0; i < n; i++) {
   img[i] = Image.Text(lines[i], 1.0, 0.69, 0.0, 1.0, font);
@@ -945,15 +947,42 @@ for (i = 0; i < n; i++) {
 cimg = Image.Text("_", 1.0, 0.69, 0.0, 1.0, font);
 cur = Sprite(cimg);
 cur.SetOpacity(0);
+s = H / 1080;
+for (i = 0; i < 7; i++) frame[i] = Image("logo-" + i + ".png").Scale(420 * s, 420 * s);
+word = Image("wordmark.png").Scale(720 * s, 160 * s);
+logo_sprite = Sprite(frame[0]);
+logo_sprite.SetPosition(W / 2 - 210 * s, H / 2 - 300 * s, 20);
+logo_sprite.SetOpacity(0);
+word_sprite = Sprite(word);
+word_sprite.SetPosition(W / 2 - 360 * s, H / 2 + 90 * s, 20);
+word_sprite.SetOpacity(0);
 counter = 0;
 fun refresh() {
   counter++;
-  shown = Math.Int(counter / 14);
-  if (shown > n - 1) shown = n - 1;
-  for (i = 0; i <= shown; i++) spr[i].SetOpacity(1);
-  cur.SetPosition(x0 + img[shown].GetWidth() + 6, y0 + shown * step, 10);
-  ph = counter - 50 * Math.Int(counter / 50);
-  if (ph < 28) cur.SetOpacity(1); else cur.SetOpacity(0);
+  if (counter < 190) {
+    shown = Math.Int(counter / 13);
+    if (shown > n - 1) shown = n - 1;
+    for (i = 0; i <= shown; i++) spr[i].SetOpacity(1);
+    cur.SetPosition(x0 + img[shown].GetWidth() + 6, y0 + shown * step, 10);
+    ph = counter - 50 * Math.Int(counter / 50);
+    if (ph < 28) cur.SetOpacity(1); else cur.SetOpacity(0);
+  } else {
+    f = 1 - (counter - 190) / 20;
+    if (f < 0) f = 0;
+    for (i = 0; i < n; i++) spr[i].SetOpacity(f);
+    cur.SetOpacity(0);
+  }
+  if (counter > 205) {
+    idx = Math.Int((counter - 205) / 10);
+    if (idx > 6) idx = 6;
+    logo_sprite.SetImage(frame[idx]);
+    logo_sprite.SetOpacity(1);
+  }
+  if (counter > 285) {
+    o = (counter - 285) / 30;
+    if (o > 1) o = 1;
+    word_sprite.SetOpacity(o);
+  }
 }
 Plymouth.SetRefreshFunction(refresh);
 PS
