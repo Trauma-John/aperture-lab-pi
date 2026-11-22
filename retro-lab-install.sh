@@ -1178,16 +1178,27 @@ fi
 fi
 
 echo "== Retro console (RetroArch) =="
-for p in retroarch retroarch-assets libretro-core-info libretro-nestopia libretro-snes9x libretro-genesisplusgx libretro-gambatte libretro-mgba libretro-beetle-pce libretro-mupen64plus-next libretro-pcsx-rearmed; do
+for p in unzip retroarch retroarch-assets libretro-core-info libretro-nestopia libretro-snes9x libretro-genesisplusgx libretro-gambatte libretro-mgba libretro-beetle-pce libretro-mupen64plus-next libretro-pcsx-rearmed; do
   sudo apt-get install -y "$p" >/dev/null 2>&1 || echo "  (skipped $p, not available)"
 done
 mkdir -p ~/ROMs/{NES,SNES,Genesis,GameBoy,GBA,N64,PSX,PCEngine} ~/.config/retroarch
+# PS1, N64, PC Engine and Dreamcast cores are not in Debian: fetch the 64-bit Pi builds from libretro
+CORES=~/.local/share/retro-lab/cores; mkdir -p "$CORES"
+for f in /usr/lib/*/libretro/*.so; do [ -f "$f" ] && ln -sf "$f" "$CORES/$(basename "$f")"; done
+for c in pcsx_rearmed mupen64plus_next mednafen_pce flycast; do
+  if [ ! -f "$CORES/${c}_libretro.so" ]; then
+    curl -fsSL -m 120 "https://buildbot.libretro.com/nightly/linux/aarch64/latest/${c}_libretro.so.zip" -o /tmp/core-$c.zip && unzip -oq /tmp/core-$c.zip -d "$CORES" || echo "  (skipped core $c, no download)"
+    rm -f /tmp/core-$c.zip
+  fi
+done
 if [ ! -f ~/.config/retroarch/retroarch.cfg ]; then
 cat > ~/.config/retroarch/retroarch.cfg <<RA
 rgui_browser_directory = "$HOME/ROMs"
 input_autodetect_enable = "true"
 video_fullscreen = "true"
 menu_show_quit_retroarch = "true"
+libretro_directory = "$HOME/.local/share/retro-lab/cores"
+libretro_info_path = "/usr/share/libretro/info"
 RA
 fi
 cat > ~/.local/share/applications/retro-console.desktop <<'AS'
