@@ -1,0 +1,50 @@
+name: Build Aperture Lab image
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ['image/**', 'retro-lab-install.sh', '.github/workflows/build-image.yml']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add the installer to the image stage
+        run: cp retro-lab-install.sh image/aperture-stage/00-aperture/files/retro-lab-install.sh
+      - name: Temporary build-only password (the account is deleted at first boot)
+        run: echo "BUILD_PW=$(openssl rand -hex 12)" >> "$GITHUB_ENV"
+      - uses: usimd/pi-gen-action@v1
+        id: build
+        with:
+          image-name: aperture-lab
+          pi-gen-version: arm64
+          release: trixie
+          stage-list: stage0 stage1 stage2 ./image/aperture-stage
+          export-last-stage-only: true
+          hostname: aperture-lab
+          username: lab
+          password: ${{ env.BUILD_PW }}
+          disable-first-boot-user-rename: 1
+          enable-ssh: 0
+          locale: en_US.UTF-8
+          timezone: America/New_York
+          keyboard-layout: us
+          wpa-country: US
+          compression: xz
+          verbose-output: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aperture-lab-image
+          path: ${{ steps.build.outputs.image-path }}
+          retention-days: 14
+          compression-level: 0
+      - name: Publish a release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="image-$(date +%Y%m%d-%H%M)"
+          gh release create "$TAG" "${{ steps.build.outputs.image-path }}" --title "Aperture Lab image $TAG" --notes "Flash with Raspberry Pi Imager: Choose OS > Use custom."

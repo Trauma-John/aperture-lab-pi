@@ -843,6 +843,19 @@ for f in /etc/lightdm/pi-greeter.conf; do
     sudo sed -i '/^\[greeter\]/a wallpaper=/usr/share/aperture/login.png\ngtk-theme-name=ApertureLogin\ngtk-font-name=DejaVu Serif 12' "$f"
   fi
 done
+if dpkg -s lightdm-gtk-greeter >/dev/null 2>&1; then
+  sudo tee /etc/lightdm/lightdm-gtk-greeter.conf >/dev/null <<'GC'
+[greeter]
+background=/usr/share/aperture/login.png
+user-background=false
+theme-name=ApertureLogin
+font-name=DejaVu Serif 12
+hide-user-image=true
+indicators=~host;~spacer;~clock;~spacer;~session;~power
+clock-format=%a %H:%M
+position=50%,center 50%,center
+GC
+fi
 sudo mkdir -p /usr/share/plymouth/themes/aperture
 sudo cp /tmp/aperture-assets/logo-*.png /tmp/aperture-assets/wordmark.png /usr/share/plymouth/themes/aperture/
 sudo tee /usr/share/plymouth/themes/aperture/aperture.plymouth >/dev/null <<'PL'
@@ -1297,8 +1310,9 @@ if ! command -v protonvpn-app >/dev/null && ! dpkg -s proton-vpn-gnome-desktop >
 fi
 
 ~/.local/bin/retro-lab-render static /tmp/aperture-assets >/dev/null 2>&1 || true
-echo
-echo "ALL DONE with the install. Now three short setup steps."
+cat > ~/.local/bin/retro-setup-steps <<'STEPS'
+#!/bin/bash
+echo "Three short setup steps."
 echo
 if ! tailscale status >/dev/null 2>&1; then
   echo "STEP 1: Sign in to Tailscale. Open the link it shows and log in."
@@ -1311,6 +1325,25 @@ echo
 echo "STEP 3: Travel security."
 read -r -p "Apply security hardening now? [Y/n] " a
 if [ "$a" != "n" ] && [ "$a" != "N" ]; then ~/.local/bin/retro-secure || true; fi
+rm -f ~/.config/autostart/lab-first-login.desktop
 echo
-echo "Finally restart the Pi:  sudo reboot"
-echo "Later:  Lab Settings (start menu)  |  retro-update (new theme)  |  retro-theme day|dusk|night|auto  |  retro-sounds on|off  |  retro-connect  |  retro-secure"
+read -r -p "All set. Press Enter to close."
+STEPS
+chmod +x ~/.local/bin/retro-setup-steps
+echo
+if [ -n "$APERTURE_UNATTENDED" ]; then
+  # image first boot: the setup steps run in a terminal the first time the desktop opens
+  cat > ~/.config/autostart/lab-first-login.desktop <<'DT'
+[Desktop Entry]
+Type=Application
+Name=Lab first-time setup
+Exec=sh -c "sleep 8; x-terminal-emulator -e bash -lc $HOME/.local/bin/retro-setup-steps"
+DT
+  echo "Install finished."
+else
+  echo "ALL DONE with the install."
+  ~/.local/bin/retro-setup-steps
+  echo
+  echo "Finally restart the Pi:  sudo reboot"
+  echo "Later:  Lab Settings (start menu)  |  retro-update (new theme)  |  retro-theme day|dusk|night|auto  |  retro-sounds on|off  |  retro-connect  |  retro-secure"
+fi

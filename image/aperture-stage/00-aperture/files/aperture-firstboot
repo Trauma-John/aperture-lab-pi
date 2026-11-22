@@ -1,0 +1,60 @@
+#!/bin/bash
+# Aperture Lab first-boot wizard (runs once on the console)
+A=$'\e[38;5;214m'; N=$'\e[0m'
+clear
+echo "${A}"
+cat <<'ART'
+   APERTURE LABORATORIES
+   ---------------------
+   Welcome. Let's set up this computer.
+ART
+echo "${N}"
+# 1) Account
+while :; do
+  read -r -p "Choose a user name (lowercase, no spaces): " U
+  [[ "$U" =~ ^[a-z][a-z0-9_-]{0,30}$ ]] && ! id "$U" >/dev/null 2>&1 && break
+  echo "  That name won't work, try another."
+done
+while :; do
+  read -r -s -p "Choose a password: " P1; echo
+  read -r -s -p "Type it again: " P2; echo
+  [ -n "$P1" ] && [ "$P1" = "$P2" ] && break
+  echo "  They didn't match, try again."
+done
+# 2) Network
+if [ "$(nmcli -t -g CONNECTIVITY general 2>/dev/null)" != "full" ]; then
+  echo
+  echo "Not online yet. Plug in a network cable, or set up Wi-Fi now."
+  read -r -p "Wi-Fi country code, like US (Enter to skip Wi-Fi): " CC
+  if [ -n "$CC" ]; then
+    raspi-config nonint do_wifi_country "${CC^^}" 2>/dev/null || true
+    rfkill unblock wifi 2>/dev/null || true
+    nmcli dev wifi rescan 2>/dev/null || true; sleep 3
+    nmcli -f SSID,SIGNAL dev wifi list 2>/dev/null | head -15
+    read -r -p "Wi-Fi name: " W
+    [ -n "$W" ] && { read -r -s -p "Wi-Fi password: " WP; echo; nmcli dev wifi connect "$W" password "$WP" || echo "  (Wi-Fi didn't connect; you can fix it later)"; }
+  fi
+fi
+# 3) Create the account, remove the temporary build account
+useradd -m -s /bin/bash -G sudo,video,audio,input,netdev,plugdev,render,users "$U"
+echo "$U:$P1" | chpasswd
+for b in $(getent passwd | awk -F: '$3==1000 && $1!="'"$U"'" {print $1}'); do userdel -r "$b" 2>/dev/null || true; done
+unset P1 P2 WP
+# 4) Install the lab desktop for this user (needs internet; a few minutes)
+echo
+echo "Setting up the Aperture desktop. This takes a few minutes..."
+if [ "$(nmcli -t -g CONNECTIVITY general 2>/dev/null)" = "full" ]; then
+  echo "$U ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/99-aperture-setup
+  chmod 440 /etc/sudoers.d/99-aperture-setup
+  sudo -u "$U" -H env APERTURE_UNATTENDED=1 bash /opt/aperture/retro-lab-install.sh
+  rm -f /etc/sudoers.d/99-aperture-setup
+else
+  echo "No internet, so the desktop install was skipped."
+  echo "Connect to the internet later and run:  bash /opt/aperture/retro-lab-install.sh"
+fi
+touch /var/lib/aperture/configured
+systemctl enable lightdm
+echo
+echo "All done. Restarting into your Aperture desktop..."
+sleep 4
+systemctl reboot

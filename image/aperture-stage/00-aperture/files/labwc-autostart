@@ -1,0 +1,2 @@
+# Aperture Lab: start everything marked "autostart" (Lab Desk, taskbar, screen lock, ...)
+dex --autostart --environment labwc &
