@@ -102,12 +102,13 @@ def svg(tn, widgets=True, W=1920, H=1080, s=None):
     out += logo(960, 470, 200)
     out += f'''<g {F}><text x="960" y="835" font-size="120" font-weight="900" text-anchor="middle" fill="{t["word"]}">aperture</text><text x="960" y="895" font-size="34" text-anchor="middle" fill="{t["sub"]}" letter-spacing="26" font-style="italic">LABORATORIES</text></g></svg>'''
     return out
-def login_svg(W=1920, H=1080):
+def login_svg(W=1920, H=1080, lock=False):
     t = THEMES["night"]; F = 'font-family="Gelasio,Georgia,DejaVu Serif,serif"'
     stops = "".join(f'<stop offset="{i/(len(t["bg"])-1)}" stop-color="{c}"/>' for i, c in enumerate(t["bg"]))
+    lock_txt = f'<text x="960" y="760" {F} font-size="30" text-anchor="middle" fill="{t["acc2"]}" letter-spacing="4">LOCKED  -  TYPE YOUR PASSWORD, THEN PRESS ENTER</text>' if lock else ''
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">{stops}</linearGradient><filter id="bl" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="70"/></filter></defs>
 <rect x="-400" y="-400" width="2720" height="1880" fill="url(#bg)"/><circle cx="960" cy="130" r="260" fill="{t["halo"]}" filter="url(#bl)" opacity=".45"/>
-{logo(960, 125, 100)}<g {F}><text x="960" y="320" font-size="84" font-weight="900" text-anchor="middle" fill="{t["word"]}">aperture</text><text x="960" y="363" font-size="24" text-anchor="middle" fill="{t["sub"]}" letter-spacing="18" font-style="italic">LABORATORIES</text></g></svg>'''
+{logo(960, 125, 100)}<g {F}><text x="960" y="320" font-size="84" font-weight="900" text-anchor="middle" fill="{t["word"]}">aperture</text><text x="960" y="363" font-size="24" text-anchor="middle" fill="{t["sub"]}" letter-spacing="18" font-style="italic">LABORATORIES</text></g>{lock_txt}</svg>'''
 def png(svgtext, path, w=None):
     tmp = path + ".svg"; open(tmp, "w").write(svgtext)
     subprocess.run(["rsvg-convert", tmp, "-o", path], check=True); os.remove(tmp)
@@ -124,6 +125,7 @@ if __name__ == "__main__":
         out = sys.argv[2]; os.makedirs(out, exist_ok=True)
         png(svg("night", False), out + "/wall.png")
         png(login_svg(), out + "/login.png")
+        png(login_svg(lock=True), out + "/lock.png")
         png(f'<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="-210 -210 420 420">{logo(0,0,210,"P")}</svg>', out + "/logo.png")
         steps = [-150, -81, 0, 109, 164, 210]
         for k in range(7):   # logo revealed stripe by stripe, for the boot splash
@@ -277,7 +279,7 @@ def launch(i):
     if a["term"]: cmd = ["x-terminal-emulator", "-e"] + cmd
     subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 def power_action(act):
-    cmds = dict(reboot=["systemctl", "reboot"], shutdown=["systemctl", "poweroff"], logout=["labwc", "--exit"], lock=["swaylock", "-f", "-c", "2a1b14"])
+    cmds = dict(reboot=["systemctl", "reboot"], shutdown=["systemctl", "poweroff"], logout=["labwc", "--exit"], lock=["retro-lockscreen"])
     if act not in cmds: return
     if act in ("reboot", "shutdown", "logout"):
         subprocess.run([HOME + "/.local/bin/retro-sound", "shutdown"], timeout=6)   # plays only if sounds are on
@@ -879,6 +881,16 @@ sudo mkdir -p /etc/lightdm/lightdm.conf.d
 printf '[Seat:*]\nuser-session=aperture\n' | sudo tee /etc/lightdm/lightdm.conf.d/60-aperture-session.conf >/dev/null
 printf '[Desktop]\nSession=aperture\n' > ~/.dmrc
 [ -f /var/lib/AccountsService/users/$USER ] && sudo sed -i 's/^Session=.*/Session=aperture/' /var/lib/AccountsService/users/$USER || true
+# Lock screen that actually shows something (a warm ring and "type your password"), instead of a blank brown screen
+sudo tee /usr/local/bin/retro-lockscreen >/dev/null <<'LK'
+#!/bin/bash
+pgrep -x swaylock >/dev/null && exit 0
+A=(-f -c 2a1b14 --indicator-idle-visible --indicator-radius 100 --indicator-thickness 12 --inside-color 2a1b14ee --ring-color e0873a --line-color 2a1b14 --key-hl-color ffd08a --bs-hl-color c8641e --text-color f6e7c1 --inside-ver-color 3a2518ee --ring-ver-color ffd08a --inside-wrong-color 5a1d10ee --ring-wrong-color c8641e --show-failed-attempts --font "DejaVu Serif" --font-size 28)
+[ -f /usr/share/aperture/lock.png ] && A+=(-i /usr/share/aperture/lock.png -s fill)
+exec swaylock "${A[@]}"
+LK
+sudo chmod +x /usr/local/bin/retro-lockscreen
+sed -i 's|swaylock -f -c 2a1b14|retro-lockscreen|g' ~/.config/autostart/lab-idle-lock.desktop ~/.local/share/applications/lab-lock.desktop ~/.local/bin/retro-lock 2>/dev/null || true
 cat > ~/.local/bin/retro-splash <<'RSP'
 #!/bin/bash
 case "$1" in on|off) sed -i "s/^splash=.*/splash=$1/" ~/.config/retro-lab/config; echo "Startup animation: $1";; *) echo "Use: retro-splash on | off";; esac
@@ -990,7 +1002,7 @@ sudo hostnamectl set-hostname "$HOSTNAME_NEW"
 echo "== 4/7 Login screen and boot splash =="
 sudo mkdir -p /usr/share/aperture
 python3 ~/.local/bin/retro-lab-render static /tmp/aperture-assets
-sudo cp /tmp/aperture-assets/login.png /tmp/aperture-assets/wall.png /tmp/aperture-assets/logo.png /usr/share/aperture/
+sudo cp /tmp/aperture-assets/login.png /tmp/aperture-assets/lock.png /tmp/aperture-assets/wall.png /tmp/aperture-assets/logo.png /usr/share/aperture/
 # Themed login box (dark rounded panel, warm colours). Logo sits above the box.
 sudo mkdir -p /usr/share/themes/ApertureLogin/gtk-3.0
 printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=ApertureLogin\nComment=Aperture Laboratories login\n\n[X-GNOME-Metatheme]\nGtkTheme=ApertureLogin\n' | sudo tee /usr/share/themes/ApertureLogin/index.theme >/dev/null
@@ -1540,8 +1552,8 @@ case "$1" in
  off) rm -f "$F"; echo "Auto-lock off.";;
  ''|*[!0-9]*) echo "Use: retro-lock <minutes> | off"; exit 1;;
  *) mkdir -p ~/.config/autostart
-    printf '[Desktop Entry]\nType=Application\nName=Lab Screen Lock\nExec=swayidle -w timeout %s '"'"'swaylock -f -c 2a1b14'"'"' before-sleep '"'"'swaylock -f -c 2a1b14'"'"'\n' $(($1*60)) > "$F"
-    (nohup swayidle -w timeout $(($1*60)) 'swaylock -f -c 2a1b14' before-sleep 'swaylock -f -c 2a1b14' >/dev/null 2>&1 &)
+    printf '[Desktop Entry]\nType=Application\nName=Lab Screen Lock\nExec=swayidle -w timeout %s '"'"'retro-lockscreen'"'"' before-sleep '"'"'retro-lockscreen'"'"'\n' $(($1*60)) > "$F"
+    (nohup swayidle -w timeout $(($1*60)) 'retro-lockscreen' before-sleep 'retro-lockscreen' >/dev/null 2>&1 &)
     echo "Screen locks after $1 minutes.";;
 esac
 RK
@@ -1571,7 +1583,7 @@ cat > ~/.local/share/applications/lab-lock.desktop <<'DT'
 [Desktop Entry]
 Type=Application
 Name=Lock screen
-Exec=swaylock -f -c 2a1b14
+Exec=retro-lockscreen
 Icon=system-lock-screen
 Categories=System;
 DT
