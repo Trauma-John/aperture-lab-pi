@@ -825,18 +825,26 @@ sudo cp /tmp/aperture-assets/login.png /tmp/aperture-assets/wall.png /tmp/apertu
 sudo mkdir -p /usr/share/themes/ApertureLogin/gtk-3.0
 printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=ApertureLogin\nComment=Aperture Laboratories login\n\n[X-GNOME-Metatheme]\nGtkTheme=ApertureLogin\n' | sudo tee /usr/share/themes/ApertureLogin/index.theme >/dev/null
 sudo tee /usr/share/themes/ApertureLogin/gtk-3.0/gtk.css >/dev/null <<'GTK'
-* { font-family: "DejaVu Serif", serif; font-size: 15px; color: #f0e0bd; text-shadow: none; box-shadow: none; }
+* { font-family: "DejaVu Serif", serif; font-size: 16px; font-weight: bold; color: #f6e7c1; text-shadow: none; box-shadow: none; -gtk-icon-shadow: none; }
 #login_window, #login-window, #login_frame, #content_frame, #login_box {
-  background-color: rgba(42,27,20,0.94); background-image: none; border-radius: 26px; border: 1.5px solid rgba(255,225,170,0.28); padding: 14px; }
+  background-color: #2a1b14; background-image: linear-gradient(#3a2518, #2a1b14); border-radius: 30px; border: 3px solid #e0873a; padding: 16px; }
+#content_frame { border: 1.5px solid #8a5a38; background-image: none; background-color: transparent; }
 #panel_window, #panel-window { background-color: rgba(42,27,20,0.0); background-image: none; }
-entry { background-color: #3a2518; background-image: none; color: #f0e0bd; border: 1.5px solid rgba(255,225,170,0.3); border-radius: 14px; padding: 7px 12px; min-height: 22px; }
-entry:focus { border-color: #e0873a; }
-button, combobox button { background-color: #4a2e1c; background-image: none; color: #f0e0bd; border: 1.5px solid rgba(255,225,170,0.3); border-radius: 14px; padding: 6px 16px; }
-button:hover { background-color: #e0873a; color: #2a1b14; }
+image { opacity: 0; min-width: 0; min-height: 0; -gtk-icon-transform: scale(0.01); }
+combobox, combobox button, combobox * { background-image: none; background-color: transparent; border: none; color: #e7c06a; font-style: italic; }
+entry { background-color: #f3e6c6; background-image: none; color: #2a1b14; caret-color: #c8641e; border: 2px solid #e0873a; border-radius: 16px; padding: 8px 14px; min-height: 24px; }
+entry:focus { border-color: #fff0cf; }
+button { background-color: #f3e6c6; background-image: none; color: #4a2a16; border: 2px solid #e0873a; border-radius: 16px; padding: 7px 20px; }
+button label { color: #4a2a16; }
+button:hover { background-color: #e0873a; }
 button:hover label { color: #2a1b14; }
-menu, menuitem, popover { background-color: #3a2518; color: #f0e0bd; }
+menu, menuitem, popover { background-color: #3a2518; color: #f6e7c1; }
 menuitem:hover { background-color: #e0873a; color: #2a1b14; }
 GTK
+# Rename the session so it no longer says "Raspberry Pi OS"
+for s in /usr/share/wayland-sessions/*.desktop /usr/share/xsessions/*.desktop; do
+  [ -f "$s" ] && sudo sed -i '/^Name\(\[.*\]\)\?=.*\(Raspberry\|labwc\|Labwc\)/ s/=.*/=Aperture Lab/' "$s" || true
+done
 for f in /etc/lightdm/pi-greeter.conf; do
   if [ -f "$f" ]; then
     sudo sed -i '/^wallpaper=/d;/^desktop_bg=/d;/^gtk-theme-name=/d;/^gtk-font-name=/d' "$f"
