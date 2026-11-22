@@ -7,7 +7,7 @@ HOSTNAME_NEW="aperture-lab"      # change this line if you want a different comp
 if [ "$(id -u)" = "0" ]; then echo "Run this as your normal user, not with sudo."; exit 1; fi
 echo "== 1/7 Installing packages =="
 sudo apt-get update
-sudo apt-get install -y librsvg2-bin waybar wofi plymouth plymouth-themes fonts-dejavu curl python3 swaybg wlr-randr bluez
+sudo apt-get install -y librsvg2-bin waybar wofi plymouth plymouth-themes fonts-dejavu curl python3 swaybg wlr-randr bluez cifs-utils
 echo "== 2/7 Installing the theme engine =="
 mkdir -p ~/.local/bin ~/.config/retro-lab ~/.cache/retro-lab
 cat > ~/.local/bin/retro-lab-render <<'PYEOF'
@@ -345,11 +345,12 @@ def settings_state():
     st["autoupdates"] = "Unattended-Upgrade \"1\"" in (open("/etc/apt/apt.conf.d/20auto-upgrades").read() if os.path.exists("/etc/apt/apt.conf.d/20auto-upgrades") else "")
     st["firewall"] = sh(["systemctl", "is-active", "ufw"]).strip() == "active"
     st["tailscale"] = sh(["tailscale", "ip", "-4"]).strip().split("\n")[0] or ""
+    st["roms"] = "/mnt/zimagames" in (open("/etc/fstab").read() if os.path.exists("/etc/fstab") else "")
     st["panel"] = "lab" if sh(["pgrep", "-x", "waybar"]).strip() else "stock"
     return st
 TERM = {  # actions that need a terminal window (passwords, questions, long output)
  "login_password": "retro-login password", "login_auto": "retro-login auto", "secure": "retro-secure", "connect": "retro-connect",
- "update": "retro-update", "system_update": "sudo apt update && sudo apt full-upgrade -y", "fix_vivaldi": "retro-fix-vivaldi", "wake_setup": "retro-wake-setup", "guided_tailscale": "sudo tailscale up --operator=$USER"}
+ "update": "retro-update", "system_update": "sudo apt update && sudo apt full-upgrade -y", "fix_vivaldi": "retro-fix-vivaldi", "wake_setup": "retro-wake-setup", "guided_tailscale": "sudo tailscale up --operator=$USER", "roms_setup": "retro-roms", "roms_off": "retro-roms off"}
 QUIET = {"panel_lab": ["retro-panel", "lab"], "panel_stock": ["retro-panel", "stock"], "rebuild": ["retro-connect", "--rebuild"], "chime": ["retro-sound", "startup"], "replay": ["lab-splash"],
          "lock_off": ["retro-lock", "off"], "lock_5": ["retro-lock", "5"], "lock_10": ["retro-lock", "10"], "lock_15": ["retro-lock", "15"], "lock_30": ["retro-lock", "30"], "lock_60": ["retro-lock", "60"]}
 def run_action(a):
@@ -681,7 +682,7 @@ async function load(force){const s=await (await fetch('/api/settings')).json(),c
  const CARDS=mkCards(s,c,sp,so);
  let h='';
  if(page==='look')h=CARDS[0]+CARDS[1]+CARDS[4];
- else if(page==='connections')h=CARDS[3];
+ else if(page==='connections')h=CARDS[3]+`<div class="card"><h2>Game library (home server)</h2><div class="row"><span class="lbl">Retro Console games from the server</span><span class="${s.roms?'ok':''}">${s.roms?'Connected':'Off'}</span></div><div class="row"><span></span><span><button onclick="act('roms_setup')">Set up / change login</button> <button onclick="act('roms_off')">Turn off</button></span></div><div class="note">Keeps your games in the roms folder on the server. Works at home and away through Tailscale. If the server is off, Retro Console uses this Pi's own ROMs folder.</div></div>`;
  else if(page==='desktop')h=CARDS[5];
  else h=await extra(page,s,c,CARDS);
  document.getElementById('g').innerHTML=h}
@@ -1472,6 +1473,52 @@ Exec=x-terminal-emulator -e bash -c "sudo apt update && sudo apt full-upgrade -y
 Icon=system-software-update
 Categories=System;
 DT
+
+# --- Game library on the home server (Retro Console reads ROMs over the network)
+cat > ~/.local/bin/retro-roms <<'RR'
+#!/bin/bash
+# retro-roms         : connect the home server's game library (asks for the server's SMB login)
+# retro-roms off     : disconnect it
+C=~/.config/retro-lab/config; M=/mnt/zimagames
+getv(){ grep "^$1=" $C | cut -d= -f2-; }
+if [ "$1" = off ]; then
+  sudo sed -i "\|$M|d" /etc/fstab; sudo systemctl daemon-reload; sudo systemctl stop mnt-zimagames.automount 2>/dev/null; sudo umount -l $M 2>/dev/null
+  echo "Game library disconnected. Retro Console uses ~/ROMs on this Pi."; exit 0
+fi
+H=$(getv server_name); [ -z "$H" ] && H=$(getv server_lan); S=$(getv server_share)
+if [ -z "$H" ] || [ -z "$S" ]; then echo "Set your server name and shared folder name first (Lab Settings > Home server & PC, or run retro-connect)."; exit 1; fi
+echo "Connecting to //$H/$S"
+read -r -p "Server login name [$(getv server_user)]: " U; U=${U:-$(getv server_user)}
+read -r -s -p "Server password: " P; echo
+sudo apt-get install -y cifs-utils >/dev/null
+sudo mkdir -p /etc/aperture $M
+printf 'username=%s\npassword=%s\n' "$U" "$P" | sudo tee /etc/aperture/smb-credentials >/dev/null
+sudo chown root:root /etc/aperture/smb-credentials; sudo chmod 600 /etc/aperture/smb-credentials
+unset P
+sudo sed -i "\|$M|d" /etc/fstab
+echo "//$H/$S $M cifs credentials=/etc/aperture/smb-credentials,uid=$(id -u),gid=$(id -g),iocharset=utf8,vers=3.0,file_mode=0664,dir_mode=0775,_netdev,nofail,noauto,x-systemd.automount,x-systemd.idle-timeout=120,x-systemd.mount-timeout=8 0 0" | sudo tee -a /etc/fstab >/dev/null
+sudo systemctl daemon-reload; sudo systemctl restart mnt-zimagames.automount
+if timeout 15 ls $M >/dev/null 2>&1; then
+  mkdir -p $M/roms/{NES,SNES,Genesis,GameBoy,GBA,N64,PSX,PCEngine,Dreamcast}
+  echo "Connected. Your game folders are on the server in: roms/ (NES, SNES, Genesis, GameBoy, GBA, N64, PSX, PCEngine, Dreamcast)."
+  echo "Copy games into them from your PC, then open Retro Console."
+else
+  echo "Couldn't reach the server share. Check the name, the share name and the login, then run this again."
+  echo "(The setting is saved; it never slows down start-up if the server is off.)"
+fi
+RR
+chmod +x ~/.local/bin/retro-roms
+cat > ~/.local/bin/retro-console <<'RCN'
+#!/bin/bash
+# Opens RetroArch with the server's game library if it is reachable, otherwise the local ~/ROMs folder
+M=/mnt/zimagames; D=~/ROMs
+if grep -q "$M" /etc/fstab 2>/dev/null && timeout 6 ls "$M/roms" >/dev/null 2>&1; then D=$M/roms; fi
+sed -i "s|^rgui_browser_directory.*|rgui_browser_directory = \"$D\"|" ~/.config/retroarch/retroarch.cfg 2>/dev/null
+exec retroarch "$@"
+RCN
+chmod +x ~/.local/bin/retro-console
+grep -q '^libretro_directory' ~/.config/retroarch/retroarch.cfg 2>/dev/null || printf 'libretro_directory = "%s/.local/share/retro-lab/cores"\nlibretro_info_path = "/usr/share/libretro/info"\n' "$HOME" >> ~/.config/retroarch/retroarch.cfg
+sed -i 's|^Exec=retroarch$|Exec=/bin/bash -c "$HOME/.local/bin/retro-console"|' ~/.local/share/applications/retro-console.desktop
 
 # --- retro-login / retro-lock
 cat > ~/.local/bin/retro-login <<'RL'
