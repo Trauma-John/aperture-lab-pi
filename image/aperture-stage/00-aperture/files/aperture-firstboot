@@ -22,17 +22,34 @@ while :; do
   echo "  They didn't match, try again."
 done
 # 2) Network
-if [ "$(nmcli -t -g CONNECTIVITY general 2>/dev/null)" != "full" ]; then
+online(){ [ "$(nmcli -t -g CONNECTIVITY general 2>/dev/null)" = "full" ]; }
+if ! online; then
   echo
   echo "Not online yet. Plug in a network cable, or set up Wi-Fi now."
   read -r -p "Wi-Fi country code, like US (Enter to skip Wi-Fi): " CC
   if [ -n "$CC" ]; then
     raspi-config nonint do_wifi_country "${CC^^}" 2>/dev/null || true
     rfkill unblock wifi 2>/dev/null || true
-    nmcli dev wifi rescan 2>/dev/null || true; sleep 3
-    nmcli -f SSID,SIGNAL dev wifi list 2>/dev/null | head -15
-    read -r -p "Wi-Fi name: " W
-    [ -n "$W" ] && { read -r -s -p "Wi-Fi password: " WP; echo; nmcli dev wifi connect "$W" password "$WP" || echo "  (Wi-Fi didn't connect; you can fix it later)"; }
+    while ! online; do
+      nmcli dev wifi rescan 2>/dev/null || true; sleep 4
+      mapfile -t NETS < <(nmcli -t -f SSID,SIGNAL dev wifi list 2>/dev/null | awk -F: '$1!="" && !seen[$1]++' | head -15)
+      echo
+      echo "Wi-Fi networks found:"
+      i=1
+      for n in "${NETS[@]}"; do echo "  $i) ${n%:*}   (signal ${n##*:})"; i=$((i+1)); done
+      echo "  r) scan again     s) skip Wi-Fi"
+      read -r -p "Type a number: " C
+      [ "$C" = "s" ] && break
+      [ "$C" = "r" ] && continue
+      if [[ "$C" =~ ^[0-9]+$ ]] && [ "$C" -ge 1 ] && [ "$C" -le "${#NETS[@]}" ]; then
+        W="${NETS[$((C-1))]%:*}"
+        read -r -s -p "Password for $W: " WP; echo
+        nmcli dev wifi connect "$W" password "$WP" || echo "  That didn't connect. Check the password and try again."
+        sleep 3
+      else
+        echo "  Please type one of the numbers."
+      fi
+    done
   fi
 fi
 # 3) Create the account, remove the temporary build account
