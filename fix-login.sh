@@ -10,25 +10,25 @@ sudo cp /tmp/aperture-assets/login.png /tmp/aperture-assets/wall.png /tmp/apertu
 sudo mkdir -p /usr/share/themes/ApertureLogin/gtk-3.0
 printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=ApertureLogin\nComment=Aperture Laboratories login\n\n[X-GNOME-Metatheme]\nGtkTheme=ApertureLogin\n' | sudo tee /usr/share/themes/ApertureLogin/index.theme >/dev/null
 sudo tee /usr/share/themes/ApertureLogin/gtk-3.0/gtk.css >/dev/null <<'GTK'
-* { font-family: "DejaVu Serif", serif; font-size: 16px; font-weight: bold; color: #f6e7c1; text-shadow: none; box-shadow: none; -gtk-icon-shadow: none; }
-#login_window, #login-window, #login_frame, #content_frame, #login_box {
-  background-color: #2a1b14; background-image: linear-gradient(#3a2518, #2a1b14); border-radius: 30px; border: 3px solid #e0873a; padding: 16px; }
-#content_frame { border: 1.5px solid #8a5a38; background-image: none; background-color: transparent; }
-#panel_window, #panel-window { background-color: rgba(42,27,20,0.0); background-image: none; }
-image { opacity: 0; min-width: 0; min-height: 0; -gtk-icon-transform: scale(0.01); }
+* { font-family: "DejaVu Serif", serif; font-size: 16px; font-weight: bold; color: #f6e7c1; text-shadow: none; box-shadow: none; }
+#login_window, #login-window { background-color: #2a1b14; background-image: none; border: none; border-radius: 0; padding: 0; }
+#login_window > *, #login-window > * { margin: 12px; padding: 20px; border: 3px solid #e0873a; border-radius: 30px; background-color: #2a1b14; background-image: linear-gradient(#3a2518, #2a1b14); }
+#content_frame, #login_frame, #login_box, #user_box { border: none; background: none; background-image: none; padding: 0; margin: 0; }
+#panel_window, #panel-window { background-color: rgba(42,27,20,0.0); background-image: none; border: none; }
+image { opacity: 0; margin: 0 -105px 0 0; }
 combobox, combobox button, combobox * { background-image: none; background-color: transparent; border: none; color: #e7c06a; font-style: italic; }
-entry { background-color: #f3e6c6; background-image: none; color: #2a1b14; caret-color: #c8641e; border: 2px solid #e0873a; border-radius: 16px; padding: 8px 14px; min-height: 24px; }
-entry:focus { border-color: #fff0cf; }
-button { background-color: #f3e6c6; background-image: none; color: #4a2a16; border: 2px solid #e0873a; border-radius: 16px; padding: 7px 20px; }
-button label { color: #4a2a16; }
-button:hover { background-color: #e0873a; }
-button:hover label { color: #2a1b14; }
+entry { background-color: #1c110b; background-image: none; color: #f6e7c1; caret-color: #e0873a; border: 2px solid #e0873a; border-radius: 16px; padding: 8px 14px; min-height: 24px; }
+entry:focus { border-color: #ffd08a; }
+button { background-color: #e0873a; background-image: none; border: 2px solid #ffd08a; border-radius: 16px; padding: 7px 22px; }
+button label { color: #2a1b14; }
+button:hover { background-color: #ffd08a; }
 menu, menuitem, popover { background-color: #3a2518; color: #f6e7c1; }
 menuitem:hover { background-color: #e0873a; color: #2a1b14; }
 GTK
 # Rename the session so it no longer says "Raspberry Pi OS"
 for s in /usr/share/wayland-sessions/*.desktop /usr/share/xsessions/*.desktop; do
-  [ -f "$s" ] && sudo sed -i '/^Name\(\[.*\]\)\?=.*\(Raspberry\|labwc\|Labwc\)/ s/=.*/=Aperture Lab/' "$s" || true
+  case "$s" in */aperture.desktop) continue;; esac
+  [ -f "$s" ] && sudo sed -i '/^Name\(\[.*\]\)\?=.*\(Raspberry\|labwc\|Labwc\)/ s/=.*/=Aperture Lab (safe mode)/' "$s" || true
 done
 for f in /etc/lightdm/pi-greeter.conf; do
   if [ -f "$f" ]; then
@@ -170,4 +170,43 @@ elif "</labwc_config>" in x: x = x.replace("</labwc_config>", "  <windowRules>\n
 open(p, "w").write(x)
 PYRC
 pkill -HUP labwc 2>/dev/null || true
+# Aperture's own desktop session: labwc with ONLY our startup list, so no stock Pi desktop, panel or wallpaper ever starts.
+sudo apt-get install -y dex labwc swaybg >/dev/null 2>&1 || true
+sudo mkdir -p /etc/aperture/labwc
+sudo tee /etc/aperture/labwc/autostart >/dev/null <<'AUT'
+swaybg -c "#2a1b14" -i /usr/share/aperture/wall.png -m fill &
+for f in "$HOME"/.config/autostart/*.desktop; do [ -f "$f" ] && dex "$f" & done
+AUT
+sudo tee /etc/aperture/labwc/rc.xml >/dev/null <<'RCX'
+<?xml version="1.0"?>
+<labwc_config>
+  <windowRules>
+    <windowRule identifier="lab-desk"><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
+    <windowRule identifier="chrome-localhost__-*"><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
+  </windowRules>
+</labwc_config>
+RCX
+sudo tee /usr/local/bin/aperture-session >/dev/null <<'ASS'
+#!/bin/bash
+# Aperture Lab desktop session
+[ -f /etc/default/keyboard ] && . /etc/default/keyboard
+export XKB_DEFAULT_LAYOUT="${XKBLAYOUT:-us}" XKB_DEFAULT_MODEL="${XKBMODEL:-}" XKB_DEFAULT_VARIANT="${XKBVARIANT:-}" XKB_DEFAULT_OPTIONS="${XKBOPTIONS:-}"
+export XDG_CURRENT_DESKTOP=labwc:wlroots XDG_SESSION_DESKTOP=labwc
+exec labwc -C /etc/aperture/labwc
+ASS
+sudo chmod +x /usr/local/bin/aperture-session
+sudo tee /usr/share/wayland-sessions/aperture.desktop >/dev/null <<'ASD'
+[Desktop Entry]
+Name=Aperture Lab
+Comment=Aperture Laboratories desktop
+Exec=/usr/local/bin/aperture-session
+Type=Application
+DesktopNames=labwc;wlroots
+ASD
+# make it the default session (the stock Pi sessions stay available as "safe mode")
+sudo sed -i 's/^user-session=.*/user-session=aperture/; s/^autologin-session=.*/autologin-session=aperture/' /etc/lightdm/lightdm.conf 2>/dev/null || true
+sudo mkdir -p /etc/lightdm/lightdm.conf.d
+printf '[Seat:*]\nuser-session=aperture\n' | sudo tee /etc/lightdm/lightdm.conf.d/60-aperture-session.conf >/dev/null
+printf '[Desktop]\nSession=aperture\n' > ~/.dmrc
+[ -f /var/lib/AccountsService/users/$USER ] && sudo sed -i 's/^Session=.*/Session=aperture/' /var/lib/AccountsService/users/$USER || true
 echo "Done. Restart now:  sudo reboot"
