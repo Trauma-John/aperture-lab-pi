@@ -70,8 +70,15 @@ else
   echo "Connect to the internet later and run:  bash /opt/aperture/retro-lab-install.sh"
 fi
 touch /var/lib/aperture/configured
-systemctl enable lightdm
+if [ -x /usr/local/bin/aperture-session ]; then
+  systemctl enable lightdm
+  MSG="All done. Restarting into your Aperture desktop..."
+else
+  systemctl disable lightdm 2>/dev/null || true
+  MSG="Desktop not installed yet. After the restart, log in here and run the install line shown above."
+fi
+systemctl enable getty@tty1 getty@tty2 2>/dev/null || true
 echo
-echo "All done. Restarting into your Aperture desktop..."
+echo "$MSG"
 sleep 4
 systemctl reboot
