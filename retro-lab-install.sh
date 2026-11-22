@@ -7,7 +7,7 @@ HOSTNAME_NEW="aperture-lab"      # change this line if you want a different comp
 if [ "$(id -u)" = "0" ]; then echo "Run this as your normal user, not with sudo."; exit 1; fi
 echo "== 1/7 Installing packages =="
 sudo apt-get update
-sudo apt-get install -y librsvg2-bin waybar wofi plymouth plymouth-themes fonts-dejavu curl python3
+sudo apt-get install -y librsvg2-bin waybar wofi plymouth plymouth-themes fonts-dejavu curl python3 swaybg
 echo "== 2/7 Installing the theme engine =="
 mkdir -p ~/.local/bin ~/.config/retro-lab ~/.cache/retro-lab
 cat > ~/.local/bin/retro-lab-render <<'PYEOF'
@@ -686,13 +686,15 @@ pkill -f 'lwrespawn.*wf-panel-pi' 2>/dev/null; pkill wf-panel-pi 2>/dev/null
 pgrep -x waybar >/dev/null || exec waybar -c ~/.config/waybar/config -s ~/.config/waybar/style.css
 LB
 chmod +x ~/.local/bin/lab-bar
-# Make the stock desktop background match the theme, so nothing "Pi OS" flashes before Lab Desk opens
-mkdir -p ~/.config/pcmanfm/LXDE-pi
-for f in ~/.config/pcmanfm/LXDE-pi/desktop-items-*.conf; do [ -f "$f" ] || continue
-  sed -i '/^wallpaper=/d;/^wallpaper_mode=/d;/^desktop_bg=/d;/^show_trash=/d;/^show_mounts=/d;/^show_documents=/d;/^show_wm_menu=/d' "$f"
-  sed -i '/^\[\*\]/a wallpaper=/usr/share/aperture/wall.png\nwallpaper_mode=crop\ndesktop_bg=#2a1b14\nshow_trash=0\nshow_mounts=0' "$f"
-done
-[ -f ~/.config/pcmanfm/LXDE-pi/desktop-items-0.conf ] || printf '[*]\nwallpaper=/usr/share/aperture/wall.png\nwallpaper_mode=crop\ndesktop_bg=#2a1b14\nshow_trash=0\nshow_mounts=0\n' > ~/.config/pcmanfm/LXDE-pi/desktop-items-0.conf
+# Take the stock Pi desktop and panel out of the session (they cause the Pi OS wallpaper flash)
+sudo apt-get install -y swaybg >/dev/null 2>&1 || true
+mkdir -p ~/.config/labwc
+SRC=~/.config/labwc/autostart; [ -f "$SRC" ] || SRC=/etc/xdg/labwc/autostart
+if [ -f "$SRC" ]; then grep -v -E 'pcmanfm|wf-panel-pi|aperture-bg' "$SRC" > /tmp/labwc-autostart.new; else : > /tmp/labwc-autostart.new; fi
+grep -q 'xdg-autostart\|dex' /tmp/labwc-autostart.new || echo 'dex --autostart --environment labwc &' >> /tmp/labwc-autostart.new
+echo 'swaybg -c "#2a1b14" -i /usr/share/aperture/wall.png -m fill & # aperture-bg' >> /tmp/labwc-autostart.new
+cp /tmp/labwc-autostart.new ~/.config/labwc/autostart
+pkill pcmanfm 2>/dev/null || true
 # Keep Lab Desk at the very bottom, out of the taskbar and out of Alt+Tab
 mkdir -p ~/.config/labwc
 python3 - <<'PYRC'
@@ -891,15 +893,19 @@ lines[9] = "ACOUSTICS ....................... WARM";
 lines[10] = "LOADING WIDGETS ................. OK";
 lines[11] = "AWAITING USER";
 n = 12;
+sz = Math.Int(Window.GetHeight() / 40);
+if (sz < 16) sz = 16;
+font = "DejaVu Sans Mono Bold " + sz;
 x0 = Window.GetWidth() * 0.08;
-y0 = Window.GetHeight() * 0.12;
+y0 = Window.GetHeight() * 0.10;
+step = sz * 2.1;
 for (i = 0; i < n; i++) {
-  img[i] = Image.Text(lines[i], 1.0, 0.69, 0.0, 1.0, "DejaVu Sans Mono Bold 18");
+  img[i] = Image.Text(lines[i], 1.0, 0.69, 0.0, 1.0, font);
   spr[i] = Sprite(img[i]);
-  spr[i].SetPosition(x0, y0 + i * 36, 10);
+  spr[i].SetPosition(x0, y0 + i * step, 10);
   spr[i].SetOpacity(0);
 }
-cimg = Image.Text("_", 1.0, 0.69, 0.0, 1.0, "DejaVu Sans Mono Bold 18");
+cimg = Image.Text("_", 1.0, 0.69, 0.0, 1.0, font);
 cur = Sprite(cimg);
 cur.SetOpacity(0);
 counter = 0;
@@ -908,7 +914,7 @@ fun refresh() {
   shown = Math.Int(counter / 14);
   if (shown > n - 1) shown = n - 1;
   for (i = 0; i <= shown; i++) spr[i].SetOpacity(1);
-  cur.SetPosition(x0 + 8 * 20, y0 + shown * 36, 10);
+  cur.SetPosition(x0 + img[shown].GetWidth() + 6, y0 + shown * step, 10);
   ph = counter - 50 * Math.Int(counter / 50);
   if (ph < 28) cur.SetOpacity(1); else cur.SetOpacity(0);
 }

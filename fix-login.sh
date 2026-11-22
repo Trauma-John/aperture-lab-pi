@@ -1,7 +1,8 @@
 #!/bin/bash
-# Aperture lab: restyle the login screen. Run as your normal user:  bash fix-login.sh
+# Aperture lab: restyle the login screen and remove the stock Pi desktop flash. Run as your normal user: bash fix-login.sh
 set -e
 [ "$(id -u)" = "0" ] && { echo "Run as your normal user, not sudo."; exit 1; }
+mkdir -p ~/.local/bin ~/.local/share/retro-lab
 sudo mkdir -p /usr/share/aperture
 python3 ~/.local/bin/retro-lab-render static /tmp/aperture-assets
 sudo cp /tmp/aperture-assets/login.png /tmp/aperture-assets/wall.png /tmp/aperture-assets/logo.png /usr/share/aperture/
@@ -48,4 +49,125 @@ clock-format=%a %H:%M
 position=50%,center 50%,center
 GC
 fi
-echo "Done. Lock or restart to see the new login screen:  sudo reboot"
+sudo mkdir -p /usr/share/plymouth/themes/aperture
+sudo cp /tmp/aperture-assets/logo-*.png /tmp/aperture-assets/wordmark.png /usr/share/plymouth/themes/aperture/
+sudo tee /usr/share/plymouth/themes/aperture/aperture.plymouth >/dev/null <<'PL'
+[Plymouth Theme]
+Name=Aperture
+Description=Retro Aperture Laboratories boot screen (amber terminal)
+ModuleName=script
+[script]
+ImageDir=/usr/share/plymouth/themes/aperture
+ScriptFile=/usr/share/plymouth/themes/aperture/aperture.script
+PL
+sudo tee /usr/share/plymouth/themes/aperture/aperture.script >/dev/null <<'PS'
+Window.SetBackgroundTopColor(0.07, 0.04, 0.0);
+Window.SetBackgroundBottomColor(0.07, 0.04, 0.0);
+lines[0] = "APERTURE LABORATORIES BIOS v1.953";
+lines[1] = "CPU: ARM CORTEX-A76 x4 .......... OK";
+lines[2] = "MEMORY TEST: 16384K";
+lines[3] = "DETECTING DRIVES ................ OK";
+lines[4] = "LOADING KERNEL .................. OK";
+lines[5] = "MOUNTING /LAB ................... OK";
+lines[6] = "STARTING NETWORK ................ OK";
+lines[7] = "TAILSCALE LINK .................. ESTABLISHED";
+lines[8] = "FIREWALL ........................ ACTIVE";
+lines[9] = "ACOUSTICS ....................... WARM";
+lines[10] = "LOADING WIDGETS ................. OK";
+lines[11] = "AWAITING USER";
+n = 12;
+sz = Math.Int(Window.GetHeight() / 40);
+if (sz < 16) sz = 16;
+font = "DejaVu Sans Mono Bold " + sz;
+x0 = Window.GetWidth() * 0.08;
+y0 = Window.GetHeight() * 0.10;
+step = sz * 2.1;
+for (i = 0; i < n; i++) {
+  img[i] = Image.Text(lines[i], 1.0, 0.69, 0.0, 1.0, font);
+  spr[i] = Sprite(img[i]);
+  spr[i].SetPosition(x0, y0 + i * step, 10);
+  spr[i].SetOpacity(0);
+}
+cimg = Image.Text("_", 1.0, 0.69, 0.0, 1.0, font);
+cur = Sprite(cimg);
+cur.SetOpacity(0);
+counter = 0;
+fun refresh() {
+  counter++;
+  shown = Math.Int(counter / 14);
+  if (shown > n - 1) shown = n - 1;
+  for (i = 0; i <= shown; i++) spr[i].SetOpacity(1);
+  cur.SetPosition(x0 + img[shown].GetWidth() + 6, y0 + shown * step, 10);
+  ph = counter - 50 * Math.Int(counter / 50);
+  if (ph < 28) cur.SetOpacity(1); else cur.SetOpacity(0);
+}
+Plymouth.SetRefreshFunction(refresh);
+PS
+sudo plymouth-set-default-theme -R aperture || echo "(boot splash step skipped, everything else still works)"
+cat > ~/.local/bin/lab-desk <<'LDS'
+#!/bin/bash
+# Lab Desk is the desktop itself: it restarts if it is closed or crashes. Also starts the startup animation.
+mkdir -p ~/.cache/retro-lab
+exec 9> ~/.cache/retro-lab/desk.lock
+flock -n 9 || exit 0     # already running
+B=$(command -v chromium || command -v chromium-browser || command -v vivaldi-stable)
+(
+  while true; do
+    pgrep -f lab-desk.py >/dev/null || (nohup python3 ~/.local/share/retro-lab/lab-desk.py >/dev/null 2>&1 &)
+    for i in $(seq 1 40); do curl -s -o /dev/null http://localhost:8787/ && break; sleep 0.25; done
+    "$B" --class=lab-desk --app=http://localhost:8787 --start-maximized --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
+    sleep 1
+  done
+) &
+if grep -q '^splash=on' ~/.config/retro-lab/config; then
+  sleep 3
+  ~/.local/bin/lab-splash
+else
+  ~/.local/bin/retro-sound startup
+fi
+wait
+LDS
+chmod +x ~/.local/bin/lab-desk
+cat > ~/.local/bin/lab-splash <<'LSP'
+#!/bin/bash
+# The startup animation (also in the start menu as "Replay startup animation").
+# After login it plays the logo part (the terminal text already ran during boot). "lab-splash full" plays everything.
+B=$(command -v chromium || command -v chromium-browser || command -v vivaldi-stable)
+Q="?skiplog=1"; [ "$1" = full ] && Q=""
+exec "$B" --kiosk --app="http://localhost:8787/splash$Q" --no-first-run --noerrdialogs --autoplay-policy=no-user-gesture-required --user-data-dir="$HOME/.cache/retro-lab/splash-browser"
+LSP
+chmod +x ~/.local/bin/lab-splash
+cat > ~/.local/bin/lab-bar <<'LB'
+#!/bin/bash
+# Swap the stock Raspberry Pi panel for the lab taskbar, as early as possible.
+pkill -f 'lwrespawn.*wf-panel-pi' 2>/dev/null; pkill wf-panel-pi 2>/dev/null
+( for i in 1 2 3 4 5 6; do sleep 1; pkill -f 'lwrespawn.*wf-panel-pi' 2>/dev/null; pkill wf-panel-pi 2>/dev/null; done ) &
+pgrep -x waybar >/dev/null || exec waybar -c ~/.config/waybar/config -s ~/.config/waybar/style.css
+LB
+chmod +x ~/.local/bin/lab-bar
+# Take the stock Pi desktop and panel out of the session (they cause the Pi OS wallpaper flash)
+sudo apt-get install -y swaybg >/dev/null 2>&1 || true
+mkdir -p ~/.config/labwc
+SRC=~/.config/labwc/autostart; [ -f "$SRC" ] || SRC=/etc/xdg/labwc/autostart
+if [ -f "$SRC" ]; then grep -v -E 'pcmanfm|wf-panel-pi|aperture-bg' "$SRC" > /tmp/labwc-autostart.new; else : > /tmp/labwc-autostart.new; fi
+grep -q 'xdg-autostart\|dex' /tmp/labwc-autostart.new || echo 'dex --autostart --environment labwc &' >> /tmp/labwc-autostart.new
+echo 'swaybg -c "#2a1b14" -i /usr/share/aperture/wall.png -m fill & # aperture-bg' >> /tmp/labwc-autostart.new
+cp /tmp/labwc-autostart.new ~/.config/labwc/autostart
+pkill pcmanfm 2>/dev/null || true
+# Keep Lab Desk at the very bottom, out of the taskbar and out of Alt+Tab
+mkdir -p ~/.config/labwc
+python3 - <<'PYRC'
+import os, re
+p = os.path.expanduser("~/.config/labwc/rc.xml")
+rule = """<!-- aperture-lab -->
+    <windowRule identifier="lab-desk"><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
+    <windowRule identifier="chrome-localhost__-*"><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
+    <!-- /aperture-lab -->"""
+x = open(p).read() if os.path.exists(p) else "<?xml version=\"1.0\"?>\n<labwc_config>\n</labwc_config>\n"
+x = re.sub(r"<!-- aperture-lab -->.*?<!-- /aperture-lab -->", "", x, flags=re.S)
+if "<windowRules>" in x: x = x.replace("<windowRules>", "<windowRules>\n    " + rule, 1)
+elif "</labwc_config>" in x: x = x.replace("</labwc_config>", "  <windowRules>\n    " + rule + "\n  </windowRules>\n</labwc_config>")
+open(p, "w").write(x)
+PYRC
+pkill -HUP labwc 2>/dev/null || true
+echo "Done. Restart now:  sudo reboot"
