@@ -7,7 +7,7 @@ HOSTNAME_NEW="aperture-lab"      # change this line if you want a different comp
 if [ "$(id -u)" = "0" ]; then echo "Run this as your normal user, not with sudo."; exit 1; fi
 echo "== 1/7 Installing packages =="
 sudo apt-get update
-sudo apt-get install -y librsvg2-bin waybar wofi plymouth plymouth-themes fonts-dejavu curl python3 swaybg
+sudo apt-get install -y librsvg2-bin waybar wofi plymouth plymouth-themes fonts-dejavu curl python3 swaybg wlr-randr bluez
 echo "== 2/7 Installing the theme engine =="
 mkdir -p ~/.local/bin ~/.config/retro-lab ~/.cache/retro-lab
 cat > ~/.local/bin/retro-lab-render <<'PYEOF'
@@ -174,7 +174,7 @@ rm -f ~/.config/autostart/retro-lab.desktop
 cat > ~/.local/share/retro-lab/lab-desk.py <<'LDPY'
 #!/usr/bin/env python3
 """Aperture Lab Desk: draggable desktop widgets served on http://localhost:8787 (no extra packages needed)."""
-import configparser, getpass, shlex, glob, json, os, re, time, threading, subprocess, urllib.request, http.server, socketserver, collections, datetime, shutil
+import configparser, getpass, shlex, glob, json, os, re, time, threading, subprocess, urllib.request, http.server, socketserver, collections, datetime, shutil, socket
 HOME = os.path.expanduser("~"); CFG = HOME + "/.config/retro-lab/config"; LAYOUT = HOME + "/.config/retro-lab/layout.json"
 PORT = int(os.environ.get("LABDESK_PORT", "8787"))
 def cfg():
@@ -349,7 +349,7 @@ def settings_state():
     return st
 TERM = {  # actions that need a terminal window (passwords, questions, long output)
  "login_password": "retro-login password", "login_auto": "retro-login auto", "secure": "retro-secure", "connect": "retro-connect",
- "update": "retro-update", "system_update": "sudo apt update && sudo apt full-upgrade -y", "fix_vivaldi": "retro-fix-vivaldi", "wake_setup": "retro-wake-setup"}
+ "update": "retro-update", "system_update": "sudo apt update && sudo apt full-upgrade -y", "fix_vivaldi": "retro-fix-vivaldi", "wake_setup": "retro-wake-setup", "guided_tailscale": "sudo tailscale up --operator=$USER"}
 QUIET = {"panel_lab": ["retro-panel", "lab"], "panel_stock": ["retro-panel", "stock"], "rebuild": ["retro-connect", "--rebuild"], "chime": ["retro-sound", "startup"], "replay": ["lab-splash"],
          "lock_off": ["retro-lock", "off"], "lock_5": ["retro-lock", "5"], "lock_10": ["retro-lock", "10"], "lock_15": ["retro-lock", "15"], "lock_30": ["retro-lock", "30"], "lock_60": ["retro-lock", "60"]}
 def run_action(a):
@@ -361,6 +361,87 @@ def run_action(a):
         for x in apps():
             if re.search(r"control centre|raspberry pi configuration", x["name"], re.I): launch(x["id"]); return
     elif a == "settings": subprocess.Popen([HOME + "/.local/bin/lab-settings"], start_new_session=True)
+# ---------- system settings (Wi-Fi, Bluetooth, display, sound, time, storage, about)
+def run(cmd, t=8):
+    try: r = subprocess.run(cmd, capture_output=True, text=True, timeout=t); return (r.stdout + r.stderr).strip() if r.returncode else r.stdout.strip()
+    except Exception as e: return ""
+OK = re.compile(r"^[\w .:@/+,=-]{1,80}$")
+SS = re.compile(r"^[^\x00-\x1f]{1,64}$")
+MAC = re.compile(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$", re.I)
+DISPFILE = HOME + "/.config/retro-lab/display.json"
+def sysinfo(w):
+    if w == "wifi":
+        raw = run(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list"], 10)
+        nets, seen = [], set()
+        for l in raw.splitlines():
+            f = re.split(r"(?<!\\):", l)
+            if len(f) >= 4 and f[1] and f[1] not in seen: seen.add(f[1]); nets.append(dict(use=f[0] == "*", ssid=f[1].replace("\\:", ":"), sig=int(f[2] or 0), sec=f[3]))
+        return dict(radio=run(["nmcli", "radio", "wifi"]).strip() == "enabled", nets=sorted(nets, key=lambda n: -n["sig"])[:20], conn=run(["nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "con", "show", "--active"]))
+    if w == "bt":
+        sh_ = run(["bluetoothctl", "show"]); devs = []
+        for l in run(["bluetoothctl", "devices"]).splitlines():
+            m = re.match(r"Device ([0-9A-F:]{17}) (.*)", l, re.I)
+            if m: devs.append(dict(mac=m.group(1), name=m.group(2), connected="Connected: yes" in run(["bluetoothctl", "info", m.group(1)])))
+        return dict(powered="Powered: yes" in sh_, devices=devs, present=bool(sh_))
+    if w == "display":
+        outs, cur = [], None
+        for l in run(["wlr-randr"]).splitlines():
+            if l and not l.startswith(" "): cur = dict(name=l.split()[0], modes=[], scale=1.0, cur=""); outs.append(cur)
+            elif cur is not None:
+                m = re.match(r"\s+(\d+x\d+) px, ([\d.]+) Hz(.*)", l)
+                if m: cur["modes"].append(m.group(1) + "@" + m.group(2)); cur["cur"] = m.group(1) + "@" + m.group(2) if "current" in m.group(3) else cur["cur"]
+                m = re.match(r"\s+Scale: ([\d.]+)", l)
+                if m: cur["scale"] = float(m.group(1))
+        return dict(outputs=outs)
+    if w == "audio":
+        vol = run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"]); m = re.search(r"([\d.]+)", vol)
+        sinks = [l.split("\t")[1] for l in run(["pactl", "list", "short", "sinks"]).splitlines() if "\t" in l]
+        return dict(vol=int(float(m.group(1)) * 100) if m else None, muted="MUTED" in vol, sinks=sinks, default=run(["pactl", "get-default-sink"]))
+    if w == "time":
+        d = {k: v for k, v in (l.split("=", 1) for l in run(["timedatectl", "show"]).splitlines() if "=" in l)}
+        return dict(tz=d.get("Timezone", ""), ntp=d.get("NTP") == "yes", now=run(["date", "+%a %d %b %Y %H:%M"]), zones=run(["timedatectl", "list-timezones"]).splitlines(), kb=run(["bash", "-c", "grep -h XKBLAYOUT /etc/default/keyboard"]))
+    if w == "storage":
+        return dict(df=run(["df", "-h", "--output=source,size,used,avail,pcent,target", "-x", "tmpfs", "-x", "devtmpfs", "-x", "squashfs"]), lsblk=run(["lsblk", "-o", "NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL"]))
+    if w == "about":
+        osr = {k: v.strip('"') for k, v in (l.split("=", 1) for l in open("/etc/os-release").read().splitlines() if "=" in l)}
+        model = open("/proc/device-tree/model").read().strip("\0") if os.path.exists("/proc/device-tree/model") else ""
+        return dict(os=osr.get("PRETTY_NAME", ""), kernel=run(["uname", "-r"]), model=model, host=socket.gethostname(), up=run(["uptime", "-p"]), throttled=run(["vcgencmd", "get_throttled"]), temp=run(["vcgencmd", "measure_temp"]), user=os.environ.get("USER", ""))
+    return {}
+def term(cmd):
+    subprocess.Popen(["x-terminal-emulator", "-e", "bash", "-lc", cmd + "; echo; read -r -p 'Done. Press Enter to close.'"], start_new_session=True)
+def apply_display():
+    try: j = json.load(open(DISPFILE))
+    except Exception: return
+    for o, v in j.items():
+        if OK.match(o) and re.match(r"^\d+x\d+@[\d.]+$", v.get("mode", "")) and re.match(r"^[\d.]+$", str(v.get("scale", "1"))):
+            subprocess.run(["wlr-randr", "--output", o, "--mode", v["mode"], "--scale", str(v["scale"])], capture_output=True)
+def sysact(j):
+    a = j.get("a", ""); g = lambda k: str(j.get(k, ""))
+    if a == "wifi_connect" and SS.match(g("ssid")):
+        cmd = ["nmcli", "dev", "wifi", "connect", g("ssid")] + (["password", g("pw")] if g("pw") else [])
+        return run(cmd, 30) or "Connected"
+    if a == "wifi_radio": return run(["nmcli", "radio", "wifi", "on" if g("v") == "on" else "off"])
+    if a == "wifi_forget" and SS.match(g("ssid")): return run(["nmcli", "con", "delete", g("ssid")])
+    if a == "bt_power": return run(["bluetoothctl", "power", "on" if g("v") == "on" else "off"])
+    if a == "bt_scan": subprocess.Popen(["bluetoothctl", "--timeout", "10", "scan", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); return "Scanning for 10 seconds"
+    if a in ("bt_connect", "bt_disconnect", "bt_pair", "bt_remove") and MAC.match(g("mac")):
+        if a == "bt_pair": return "\n".join(run(["bluetoothctl", c, g("mac")], 25) for c in ("pair", "trust", "connect"))
+        return run(["bluetoothctl", a[3:], g("mac")], 15)
+    if a == "display" and OK.match(g("out")) and re.match(r"^\d+x\d+@[\d.]+$", g("mode")) and re.match(r"^[\d.]+$", g("scale")):
+        r = run(["wlr-randr", "--output", g("out"), "--mode", g("mode"), "--scale", g("scale")])
+        try: d = json.load(open(DISPFILE))
+        except Exception: d = {}
+        d[g("out")] = dict(mode=g("mode"), scale=g("scale")); open(DISPFILE, "w").write(json.dumps(d)); return r or "Applied"
+    if a == "vol" and g("v").isdigit(): return run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", str(min(100, int(g("v")))) + "%"])
+    if a == "mute": return run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+    if a == "sink" and OK.match(g("v")): return run(["pactl", "set-default-sink", g("v")])
+    if a == "tz" and re.match(r"^[A-Za-z_]+(/[A-Za-z_+-]+){0,2}$", g("v")): term("sudo timedatectl set-timezone " + g("v")); return "Opening a terminal for your password"
+    if a == "ntp": term("sudo timedatectl set-ntp " + ("true" if g("v") == "on" else "false")); return "Opening a terminal for your password"
+    if a == "kb" and re.match(r"^[a-z]{2,3}$", g("v")): term("sudo raspi-config nonint do_configure_keyboard " + g("v") + "; echo 'Log out and back in to apply the keyboard.'"); return "Opening a terminal for your password"
+    if a == "passwd": term("passwd"); return "Opening a terminal"
+    if a == "hostname" and re.match(r"^[a-z][a-z0-9-]{0,30}$", g("v")): term("sudo hostnamectl set-hostname " + g("v")); return "Opening a terminal for your password"
+    return "Not allowed"
+
 class Q(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def send(self, body, ct="application/json"):
@@ -371,6 +452,7 @@ class Q(http.server.BaseHTTPRequestHandler):
             try: lay = json.load(open(LAYOUT))
             except Exception: pass
             self.send(json.dumps(dict(cur=CUR, hist={k: list(v) for k, v in H.items()}, ping=list(PING), top=TOP, weather=WX["data"], cfg=cfg(), layout=lay)))
+        elif self.path.startswith("/api/sys"): self.send(json.dumps(sysinfo(re.sub(r"[^a-z]", "", self.path.split("w=")[-1]))))
         elif self.path.startswith("/api/apps"): self.send(json.dumps(apps()))
         elif self.path.startswith("/api/settings"): self.send(json.dumps(settings_state()))
         elif self.path.startswith("/settings"): self.send(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.html")).read(), "text/html; charset=utf-8")
@@ -388,6 +470,10 @@ class Q(http.server.BaseHTTPRequestHandler):
             try: j = json.loads(b); setkey(j["k"], str(j["v"]))
             except Exception: pass
         elif self.path == "/api/action": run_action(b)
+        elif self.path == "/api/sysact":
+            try: out = sysact(json.loads(b))
+            except Exception as e: out = "Error"
+            return self.send(json.dumps(dict(out=out)))
         elif self.path == "/api/mail":
             u = {"gmail": "https://mail.google.com/", "proton": "https://mail.proton.me/"}.get(cfg().get("mail_tab"), "https://mail.google.com/")
             subprocess.Popen(["xdg-open", u], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -400,6 +486,7 @@ class Q(http.server.BaseHTTPRequestHandler):
 PAGE = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lab-desk.html")).read() if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lab-desk.html")) else "@@PAGE@@"
 if __name__ == "__main__":
     for f in (sampler, pinger, topper, styler): threading.Thread(target=f, daemon=True).start()
+    threading.Timer(4, apply_display).start()
     class S(socketserver.ThreadingMixIn, http.server.HTTPServer): daemon_threads = True; allow_reuse_address = True
     S(("127.0.0.1", PORT), Q).serve_forever()
 LDPY
@@ -517,14 +604,14 @@ cat > ~/.local/share/retro-lab/settings.html <<'LSET'
 <style>
 :root{--bg:linear-gradient(#2a1b14,#3a2518);--panel:rgba(255,225,170,.08);--pstroke:rgba(255,225,170,.18);--text:#f0e0bd;--sub:#c9a77a;--acc:#e0873a;--acc2:#e7c06a;--track:rgba(255,225,170,.12)}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);background-attachment:fixed;color:var(--text);font-family:Gelasio,Georgia,"DejaVu Serif",serif}
-.wrap{max-width:980px;margin:0 auto;padding:28px 20px 60px}h1{margin:0 0 4px;font-size:34px}.sub{color:var(--sub);margin-bottom:22px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}.layout{display:flex;gap:18px;align-items:flex-start}.nav{display:flex;flex-direction:column;gap:6px;min-width:190px;position:sticky;top:16px}.nav button{text-align:left;border-radius:18px}.main{flex:1;min-width:0}pre{white-space:pre-wrap;font:13px/1.4 monospace;margin:6px 0;color:var(--sub)}.net{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0}h1{margin:0 0 4px;font-size:34px}.sub{color:var(--sub);margin-bottom:22px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px}
 .card{background:var(--panel);border:1.5px solid var(--pstroke);border-radius:26px;padding:18px 22px}.card h2{margin:0 0 10px;font-size:14px;letter-spacing:3px;color:var(--sub);font-weight:400;text-transform:uppercase}
 .row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:9px 0;flex-wrap:wrap}.lbl{font-size:16px}.note{font-size:13px;color:var(--sub);margin-top:6px}
 button,select,input{font:inherit;color:var(--text);background:var(--panel);border:1.5px solid var(--pstroke);border-radius:14px;padding:7px 13px;cursor:pointer}
 button:hover{border-color:var(--acc)}button.on{background:var(--acc);color:#2a1b14;border-color:var(--acc)}input{cursor:text;width:190px}input[type=range]{width:170px;padding:0}
 select option{background:#3a2518;color:#f0e0bd}.ok{color:var(--acc2)}.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--acc);color:#2a1b14;padding:8px 18px;border-radius:18px;opacity:0;transition:opacity .2s}.toast.show{opacity:1}
-</style></head><body><div class="wrap"><h1>Lab Settings</h1><div class="sub">Everything for your Aperture lab Pi in one place.</div><div class="grid" id="g"></div></div><div class="toast" id="t"></div>
+</style></head><body><div class="wrap"><h1>Lab Settings</h1><div class="sub">Everything for your Aperture lab Pi in one place.</div><div class="layout"><div class="nav" id="nav"></div><div class="main"><div class="grid" id="g"></div></div></div></div><div class="toast" id="t"></div>
 <script>
 const TH={night:{bg:['#2a1b14','#3a2518'],panel:'rgba(255,225,170,.08)',pstroke:'rgba(255,225,170,.18)',text:'#f0e0bd',sub:'#c9a77a',acc:'#e0873a',acc2:'#e7c06a',track:'rgba(255,225,170,.12)'},day:{bg:['#f3e6c6','#ead7ac'],panel:'rgba(122,59,20,.07)',pstroke:'rgba(122,59,20,.15)',text:'#4a2a16',sub:'#8a5a38',acc:'#d27a35',acc2:'#d9a93f',track:'rgba(122,59,20,.12)'},dusk:{bg:['#3d2016','#8a4426','#d98a3e','#ecc275'],panel:'rgba(60,25,10,.28)',pstroke:'rgba(255,235,200,.22)',text:'#fbeed0',sub:'#f0d6a4',acc:'#fff0cf',acc2:'#f2b45a',track:'rgba(255,235,200,.2)'}};
 function theme(c){let m=c.mode;if(!TH[m]){const h=new Date().getHours(),a=+c.dawn,d=+c.day,u=+c.dusk,n=+c.night;m=(h>=d&&h<u)?'day':((h>=a&&h<d)||(h>=u&&h<n))?'dusk':'night'}const t=TH[m],r=document.documentElement.style;r.setProperty('--bg','linear-gradient('+t.bg.join(',')+')');for(const k in t)if(k!=='bg')r.setProperty('--'+k,t[k])}
@@ -536,28 +623,69 @@ const seg=(k,opts,cur)=>opts.map(o=>`<button class="${cur===o[0]?'on':''}" oncli
 const fld=(k,l,v,ph)=>`<div class="row"><span class="lbl">${l}</span><input id="f_${k}" value="${v||''}" placeholder="${ph||''}"></div>`;
 async function saveConn(){for(const k of ['server_name','server_lan','server_share','port_jellyfin','port_seerr','pc_name','pc_mac','server_user']){const v=document.getElementById('f_'+k).value.trim();await P('/api/set',JSON.stringify({k,v}))}await act('rebuild','Saved. Start-menu shortcuts rebuilt.')}
 async function saveHours(){for(const k of ['dawn','day','dusk','night']){await P('/api/set',JSON.stringify({k,v:document.getElementById('h_'+k).value}))}toast('Schedule saved');load()}
-async function load(){const s=await (await fetch('/api/settings')).json(),c=s.cfg;theme(c);const sp=(c.splash||'on')==='on',so=(c.sounds||'on')==='on';
- document.getElementById('g').innerHTML=`
-<div class="card"><h2>Look</h2><div class="row"><span class="lbl">Theme</span><span>${seg('mode',[['auto','Auto'],['day','Day'],['dusk','Dusk'],['night','Night']],c.mode)}</span></div>
+const mkCards=(s,c,sp,so)=>[`<div class="card"><h2>Look</h2><div class="row"><span class="lbl">Theme</span><span>${seg('mode',[['auto','Auto'],['day','Day'],['dusk','Dusk'],['night','Night']],c.mode)}</span></div>
 <div class="row"><span class="lbl">Auto schedule (24h)</span><span>dawn <input id="h_dawn" style="width:55px" value="${c.dawn}"> day <input id="h_day" style="width:55px" value="${c.day}"> dusk <input id="h_dusk" style="width:55px" value="${c.dusk}"> night <input id="h_night" style="width:55px" value="${c.night}"> <button onclick="saveHours()">Save</button></span></div>
 <div class="row"><span class="lbl">Startup animation</span><span>${seg('splash',[['on','On'],['off','Off']],sp?'on':'off')} <button onclick="act('replay','Playing…')">Replay</button></span></div></div>
-<div class="card"><h2>Sounds</h2><div class="row"><span class="lbl">Sounds</span><span>${seg('sounds',[['on','On'],['off','Off']],so?'on':'off')}</span></div>
+`,`<div class="card"><h2>Sounds</h2><div class="row"><span class="lbl">Sounds</span><span>${seg('sounds',[['on','On'],['off','Off']],so?'on':'off')}</span></div>
 <div class="row"><span class="lbl">Style</span><span>${seg('sound_style',[['a-warm-synth','Warm synth'],['b-lab-pa-chime','Lab chime'],['c-teletype-beeps','Teletype']],c.sound_style)}</span></div>
 <div class="row"><span class="lbl">Volume</span><span><input type="range" min="10" max="100" value="${c.sound_volume||100}" onchange="set('sound_volume',this.value)"> <button onclick="act('chime','Playing…')">Test</button></span></div></div>
-<div class="card"><h2>Security</h2><div class="row"><span class="lbl">Login</span><span>${s.autologin?'<span class="ok">Automatic (no password)</span>':'<span class="ok">Password required</span>'}</span></div>
+`,`<div class="card"><h2>Security</h2><div class="row"><span class="lbl">Login</span><span>${s.autologin?'<span class="ok">Automatic (no password)</span>':'<span class="ok">Password required</span>'}</span></div>
 <div class="row"><span></span><span><button onclick="act('login_password')">Require password</button> <button onclick="act('login_auto')">Auto-login</button></span></div>
 <div class="row"><span class="lbl">Lock screen after</span><span><select onchange="act(this.value,'Lock time set')">${[['lock_off','Never'],['lock_5','5 min'],['lock_10','10 min'],['lock_15','15 min'],['lock_30','30 min'],['lock_60','60 min']].map(o=>`<option value="${o[0]}" ${(o[0]==='lock_off'&&!s.lock_min)||o[0]==='lock_'+s.lock_min?'selected':''}>${o[1]}</option>`).join('')}</select></span></div>
 <div class="row"><span class="lbl">Firewall</span><span class="${s.firewall?'ok':''}">${s.firewall?'On (Tailscale only)':'Off'}</span></div><div class="row"><span class="lbl">Automatic security updates</span><span class="${s.autoupdates?'ok':''}">${s.autoupdates?'On':'Off'}</span></div>
 <div class="row"><span></span><button onclick="act('secure')">Run travel security setup</button></div></div>
-<div class="card"><h2>Connections</h2>${fld('server_name','Home server (Tailscale name)',c.server_name)}${fld('server_lan','Home server (home address)',c.server_lan)}${fld('server_share','Shared folder name',c.server_share)}${fld('server_user','Server login name',c.server_user)}${fld('port_jellyfin','Jellyfin port',c.port_jellyfin)}${fld('port_seerr','Seerr port',c.port_seerr)}${fld('pc_name','My PC (Tailscale name)',c.pc_name)}${fld('pc_mac','My PC MAC address',c.pc_mac,'AA-BB-CC-DD-EE-FF')}
+`,`<div class="card"><h2>Connections</h2>${fld('server_name','Home server (Tailscale name)',c.server_name)}${fld('server_lan','Home server (home address)',c.server_lan)}${fld('server_share','Shared folder name',c.server_share)}${fld('server_user','Server login name',c.server_user)}${fld('port_jellyfin','Jellyfin port',c.port_jellyfin)}${fld('port_seerr','Seerr port',c.port_seerr)}${fld('pc_name','My PC (Tailscale name)',c.pc_name)}${fld('pc_mac','My PC MAC address',c.pc_mac,'AA-BB-CC-DD-EE-FF')}
 <div class="row"><span class="lbl">Tailscale</span><span class="${s.tailscale?'ok':''}">${s.tailscale?'Connected '+s.tailscale:'Not connected'}</span></div>
 <div class="row"><span><button onclick="saveConn()">Save and update menu</button></span><span><button onclick="act('connect')">Guided setup</button> <button onclick="act('wake_setup')">Set up Wake My PC</button></span></div><div class="note">Saved only on this Pi.</div></div>
-<div class="card"><h2>Mail card</h2><div class="row"><span class="lbl">Inbox the Mail card opens</span><span>${seg('mail_tab',[['gmail','Gmail'],['proton','Proton Mail']],c.mail_tab||'gmail')}</span></div><div class="note">Turn the card on with the ☰ tab in Lab Desk. It opens your inbox in Vivaldi; unread counts may come later.</div></div>
-<div class="card"><h2>Taskbar and widgets</h2><div class="row"><span class="lbl">Taskbar</span><span><button class="${s.panel==='lab'?'on':''}" onclick="act('panel_lab','Lab taskbar on')">Lab</button> <button class="${s.panel==='stock'?'on':''}" onclick="act('panel_stock','Stock taskbar on')">Stock Pi</button></span></div>
+`,`<div class="card"><h2>Mail card</h2><div class="row"><span class="lbl">Inbox the Mail card opens</span><span>${seg('mail_tab',[['gmail','Gmail'],['proton','Proton Mail']],c.mail_tab||'gmail')}</span></div><div class="note">Turn the card on with the ☰ tab in Lab Desk. It opens your inbox in Vivaldi; unread counts may come later.</div></div>
+`,`<div class="card"><h2>Taskbar and widgets</h2><div class="row"><span class="lbl">Taskbar</span><span><button class="${s.panel==='lab'?'on':''}" onclick="act('panel_lab','Lab taskbar on')">Lab</button> <button class="${s.panel==='stock'?'on':''}" onclick="act('panel_stock','Stock taskbar on')">Stock Pi</button></span></div>
 <div class="row"><span class="lbl">Widgets</span><span><button onclick="P('/api/reset','').then(()=>toast('Widget positions reset'))">Reset positions</button></span></div><div class="note">Show or hide individual widgets with the ☰ tab on the left edge of Lab Desk.</div></div>
-<div class="card"><h2>Updates and fixes</h2><div class="row"><span class="lbl">Lab theme</span><button onclick="act('update')">Check for updates</button></div><div class="row"><span class="lbl">Whole system</span><button onclick="act('system_update')">Update everything</button></div><div class="row"><span class="lbl">Vivaldi crashes on start?</span><button onclick="act('fix_vivaldi')">Apply fix</button></div></div>
-<div class="card"><h2>Raspberry Pi system settings</h2><div class="row"><span class="lbl">Display, Wi-Fi, Bluetooth, audio devices, keyboard…</span><button onclick="act('control_centre','Opening…')">Open Control Centre</button></div><div class="note">The Control Centre can also switch auto-login on or off.</div></div>`}
-load();setInterval(()=>{if(!document.activeElement||document.activeElement.tagName!=='INPUT')load()},15000);
+`,`<div class="card"><h2>Updates and fixes</h2><div class="row"><span class="lbl">Lab theme</span><button onclick="act('update')">Check for updates</button></div><div class="row"><span class="lbl">Whole system</span><button onclick="act('system_update')">Update everything</button></div><div class="row"><span class="lbl">Vivaldi crashes on start?</span><button onclick="act('fix_vivaldi')">Apply fix</button></div></div>
+`,`<div class="card"><h2>Advanced (stock Pi settings, rarely needed)</h2><div class="row"><span class="lbl">Display, Wi-Fi, Bluetooth, audio devices, keyboard…</span><button onclick="act('control_centre','Opening…')">Open Control Centre</button></div><div class="note">The Control Centre can also switch auto-login on or off.</div></div>`];
+const PAGES=[['look','Look & sound'],['network','Network'],['display','Display'],['audio','Sound & keyboard'],['time','Date & time'],['accounts','Accounts & security'],['connections','Home server & PC'],['storage','Storage & power'],['desktop','Desktop'],['updates','Updates & about']];
+let page=(()=>{try{return localStorage.getItem('lsPage')||'look'}catch(e){return 'look'}})();
+const S=async(a,x)=>{const r=await (await P('/api/sysact',JSON.stringify({a,...x}))).json();toast((r.out||'Done').slice(0,80));return r.out};
+const W=async w=>await (await fetch('/api/sys?w='+w)).json();
+const esc=t=>String(t).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+function go(p){page=p;try{localStorage.setItem('lsPage',p)}catch(e){}load(true)}
+async function wifiGo(i){const n=window._nets[i];await S('wifi_connect',{ssid:n.ssid,pw:(document.getElementById('wpw')||{}).value||''});go('network')}
+async function wifiForget(i){await S('wifi_forget',{ssid:window._nets[i].ssid});go('network')}
+async function btDo(a,m){await S(a,{mac:m});setTimeout(()=>go('network'),1200)}
+async function dispApply(o){const m=document.getElementById('m_'+o).value,sc=document.getElementById('s_'+o).value;await S('display',{out:o,mode:m,scale:sc})}
+async function tzSet(){await S('tz',{v:document.getElementById('tzsel').value})}
+async function kbSet(){await S('kb',{v:document.getElementById('kb').value.trim()})}
+async function hostSet(){await S('hostname',{v:document.getElementById('hn').value.trim()})}
+async function pwr(x){if(confirm(x+'?'))await P('/api/power',x)}
+async function extra(pg,s,c,CARDS){
+ if(pg==='network'){const w=await W('wifi'),b=await W('bt');window._nets=w.nets;
+  return `<div class="card"><h2>Wi-Fi</h2><div class="row"><span class="lbl">Wi-Fi radio</span><span><button class="${w.radio?'on':''}" onclick="S('wifi_radio',{v:'on'}).then(()=>go('network'))">On</button> <button class="${w.radio?'':'on'}" onclick="S('wifi_radio',{v:'off'}).then(()=>go('network'))">Off</button></span></div><div class="row"><span class="lbl">Password for a new network</span><input id="wpw" type="password" placeholder="leave empty if open"></div>${w.nets.map((n,i)=>`<div class="net"><span>${n.use?'&#9679; ':''}${esc(n.ssid)} <span class="note">${n.sig}% ${n.sec?'&#128274;':''}</span></span><span>${n.use?'<span class="ok">connected</span>':`<button onclick="wifiGo(${i})">Connect</button>`} <button onclick="wifiForget(${i})">Forget</button></span></div>`).join('')||'<div class="note">No networks found. Wired connections work automatically.</div>'}<div class="row"><button onclick="go('network')">Refresh</button></div></div>
+<div class="card"><h2>Bluetooth</h2>${b.present?`<div class="row"><span class="lbl">Bluetooth</span><span><button class="${b.powered?'on':''}" onclick="S('bt_power',{v:'on'}).then(()=>go('network'))">On</button> <button class="${b.powered?'':'on'}" onclick="S('bt_power',{v:'off'}).then(()=>go('network'))">Off</button> <button onclick="S('bt_scan',{}).then(()=>setTimeout(()=>go('network'),11000))">Scan for devices</button></span></div>${b.devices.map(d=>`<div class="net"><span>${esc(d.name)} ${d.connected?'<span class="ok">connected</span>':''}</span><span>${d.connected?`<button onclick="btDo('bt_disconnect','${d.mac}')">Disconnect</button>`:`<button onclick="btDo('bt_pair','${d.mac}')">Pair / connect</button>`} <button onclick="btDo('bt_remove','${d.mac}')">Remove</button></span></div>`).join('')||'<div class="note">No devices yet. Put your device in pairing mode and press Scan.</div>'}`:'<div class="note">No Bluetooth adapter found.</div>'}</div>
+<div class="card"><h2>Tailscale and VPN</h2><div class="row"><span class="lbl">Tailscale</span><span class="${s.tailscale?'ok':''}">${s.tailscale?'Connected '+s.tailscale:'Not connected'}</span></div><div class="row"><span></span><span><button onclick="act('guided_tailscale')">Sign in / reconnect</button></span></div><div class="note">Proton VPN has its own app in the start menu.</div></div>`}
+ if(pg==='display'){const d=await W('display');
+  return d.outputs.map(o=>`<div class="card"><h2>Screen ${esc(o.name)}</h2><div class="row"><span class="lbl">Resolution and refresh</span><select id="m_${o.name}">${o.modes.map(m=>`<option ${m===o.cur?'selected':''}>${m}</option>`).join('')}</select></div><div class="row"><span class="lbl">Scale (text size)</span><select id="s_${o.name}">${['1','1.25','1.5','1.75','2'].map(v=>`<option ${parseFloat(v)===o.scale?'selected':''}>${v}</option>`).join('')}</select></div><div class="row"><span></span><button onclick="dispApply('${o.name}')">Apply</button></div><div class="note">If the screen goes blank, wait 10 seconds and restart the Pi. Your choice is remembered at every start.</div></div>`).join('')||'<div class="card"><div class="note">No display info available (this page needs the lab desktop running).</div></div>'}
+ if(pg==='audio'){const a=await W('audio'),t=await W('time');
+  return `<div class="card"><h2>Sound output</h2>${a.vol===null?'<div class="note">No sound device found.</div>':`<div class="row"><span class="lbl">Volume</span><span><input type="range" min="0" max="100" value="${a.vol}" onchange="S('vol',{v:this.value})"> <button class="${a.muted?'on':''}" onclick="S('mute',{}).then(()=>go('audio'))">Mute</button></span></div><div class="row"><span class="lbl">Play sound through</span><select onchange="S('sink',{v:this.value})">${a.sinks.map(k=>`<option ${k===a.default?'selected':''}>${esc(k)}</option>`).join('')}</select></div>`}<div class="row"><span class="lbl">Lab sounds (startup chime etc.)</span><span>see Look &amp; sound</span></div></div>
+<div class="card"><h2>Keyboard</h2><div class="row"><span class="lbl">Layout code (us, gb, de, fr...)</span><span><input id="kb" style="width:80px" value="${esc((t.kb.match(/="?([a-z,]+)/)||[,'us'])[1])}"> <button onclick="kbSet()">Apply</button></span></div><div class="note">Opens a terminal for your password. Log out and back in afterwards.</div></div>`}
+ if(pg==='time'){const t=await W('time');
+  return `<div class="card"><h2>Date and time</h2><div class="row"><span class="lbl">Now</span><b>${esc(t.now)}</b></div><div class="row"><span class="lbl">Set automatically from the internet</span><span><button class="${t.ntp?'on':''}" onclick="S('ntp',{v:'on'})">On</button> <button class="${t.ntp?'':'on'}" onclick="S('ntp',{v:'off'})">Off</button></span></div><div class="row"><span class="lbl">Time zone</span><span><select id="tzsel">${t.zones.map(z=>`<option ${z===t.tz?'selected':''}>${esc(z)}</option>`).join('')}</select> <button onclick="tzSet()">Set</button></span></div><div class="note">Time zone and automatic time open a terminal for your password. Travelling? Change the time zone here.</div></div>`}
+ if(pg==='accounts'){const a=await W('about');
+  return `<div class="card"><h2>Account</h2><div class="row"><span class="lbl">Signed in as</span><b>${esc(a.user)}</b></div><div class="row"><span class="lbl">Change my password</span><button onclick="S('passwd',{})">Change password</button></div><div class="row"><span class="lbl">Computer name</span><span><input id="hn" style="width:150px" value="${esc(a.host)}"> <button onclick="hostSet()">Rename</button></span></div></div>`+CARDS[2]}
+ if(pg==='storage'){const d=await W('storage');
+  return `<div class="card"><h2>Storage</h2><pre>${esc(d.df)}</pre><pre>${esc(d.lsblk)}</pre><div class="note">Plug in a USB drive and it shows up here and in Files.</div></div><div class="card"><h2>Power</h2><div class="row"><button onclick="pwr('lock')">Lock screen</button><button onclick="pwr('logout')">Log out</button><button onclick="pwr('reboot')">Restart</button><button onclick="pwr('shutdown')">Shut down</button></div></div>`}
+ if(pg==='updates'){const a=await W('about');
+  return CARDS[6]+`<div class="card"><h2>About this computer</h2><div class="row"><span>System</span><b>${esc(a.os)}</b></div><div class="row"><span>Computer</span><b>${esc(a.model)}</b></div><div class="row"><span>Name</span><b>${esc(a.host)}</b></div><div class="row"><span>Kernel</span><b>${esc(a.kernel)}</b></div><div class="row"><span>Up</span><b>${esc(a.up)}</b></div><div class="row"><span>Temperature</span><b>${esc(a.temp)}</b></div><div class="row"><span>Power / throttling</span><b>${esc(a.throttled)}</b></div></div>`+CARDS[7]}
+ return ''}
+async function load(force){const s=await (await fetch('/api/settings')).json(),c=s.cfg;theme(c);
+ document.getElementById('nav').innerHTML=PAGES.map(p=>`<button class="${p[0]===page?'on':''}" onclick="go('${p[0]}')">${p[1]}</button>`).join('');
+ const sp=(c.splash||'off')==='on',so=(c.sounds||'on')==='on';
+ const CARDS=mkCards(s,c,sp,so);
+ let h='';
+ if(page==='look')h=CARDS[0]+CARDS[1]+CARDS[4];
+ else if(page==='connections')h=CARDS[3];
+ else if(page==='desktop')h=CARDS[5];
+ else h=await extra(page,s,c,CARDS);
+ document.getElementById('g').innerHTML=h}
+load();setInterval(()=>{if(['look','connections','desktop'].includes(page)&&(!document.activeElement||!['INPUT','SELECT'].includes(document.activeElement.tagName)))load()},15000);
 </script></body></html>
 LSET
 cat > ~/.local/share/retro-lab/splash.html <<'LSPL'
