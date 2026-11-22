@@ -663,8 +663,6 @@ B=$(command -v chromium || command -v chromium-browser || command -v vivaldi-sta
 if grep -q '^splash=on' ~/.config/retro-lab/config; then
   sleep 3
   ~/.local/bin/lab-splash
-else
-  ~/.local/bin/retro-sound startup
 fi
 wait
 LDS
@@ -986,6 +984,43 @@ fun refresh() {
 }
 Plymouth.SetRefreshFunction(refresh);
 PS
+# Startup chime during the boot animation (before login), and hold the boot screen until the animation has finished
+sudo tee /usr/local/sbin/aperture-chime >/dev/null <<'CH'
+#!/bin/bash
+U=$(getent passwd 1000 | cut -d: -f1); C=/home/$U/.config/retro-lab/config
+grep -q '^sounds=off' "$C" 2>/dev/null && exit 0
+S=$(grep '^sound_style=' "$C" 2>/dev/null | cut -d= -f2-); V=$(grep '^sound_volume=' "$C" 2>/dev/null | cut -d= -f2-)
+F=/home/$U/.local/share/retro-lab/sounds/${S:-a-warm-synth}/startup.wav
+[ -f "$F" ] || exit 0
+while [ "$(cut -d. -f1 /proc/uptime)" -lt 7 ]; do sleep 0.2; done
+python3 - "$F" "${V:-100}" <<'PY' | aplay -q -
+import sys, wave, array, io
+w = wave.open(sys.argv[1]); p = w.getparams(); d = array.array("h", w.readframes(p.nframes)); v = int(sys.argv[2]) / 100
+d = array.array("h", [int(x * v) for x in d])
+o = io.BytesIO(); x = wave.open(o, "wb"); x.setparams(p); x.writeframes(d.tobytes()); x.close()
+sys.stdout.buffer.write(o.getvalue())
+PY
+CH
+sudo chmod +x /usr/local/sbin/aperture-chime
+sudo tee /etc/systemd/system/aperture-chime.service >/dev/null <<'SV'
+[Unit]
+Description=Aperture startup chime
+After=sound.target alsa-restore.service
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/aperture-chime
+[Install]
+WantedBy=multi-user.target
+SV
+for u in plymouth-quit lightdm; do
+  sudo mkdir -p /etc/systemd/system/$u.service.d
+  printf '[Service]\nExecStartPre=/bin/sh -c '"'"'while [ "$(cut -d. -f1 /proc/uptime)" -lt 10 ]; do sleep 0.3; done'"'"'\n' | sudo tee /etc/systemd/system/$u.service.d/aperture-hold.conf >/dev/null
+done
+sudo systemctl daemon-reload
+sudo systemctl enable aperture-chime.service 2>/dev/null || true
+for f in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
+  [ -f "$f" ] && ! grep -q splash "$f" && sudo sed -i 's/$/ quiet splash plymouth.ignore-serial-consoles/' "$f" || true
+done
 sudo plymouth-set-default-theme -R aperture || echo "(boot splash step skipped, everything else still works)"
 
 echo "== 5/7 Soft retro colours for apps =="
