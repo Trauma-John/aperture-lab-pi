@@ -355,8 +355,9 @@ python3 - <<'PYRC'
 import os, re
 p = os.path.expanduser("~/.config/labwc/rc.xml")
 rule = """<!-- aperture-lab -->
-    <windowRule identifier="lab-desk"><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
-    <windowRule identifier="chrome-localhost__-*"><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
+    <windowRule identifier="lab-desk"><serverDecoration>no</serverDecoration><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher></windowRule>
+    <windowRule title="Lab Desk*"><serverDecoration>no</serverDecoration><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
+    <windowRule identifier="chrome-localhost__-*"><serverDecoration>no</serverDecoration><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher></windowRule>
     <!-- /aperture-lab -->"""
 x = open(p).read() if os.path.exists(p) else "<?xml version=\"1.0\"?>\n<labwc_config>\n</labwc_config>\n"
 x = re.sub(r"<!-- aperture-lab -->.*?<!-- /aperture-lab -->", "", x, flags=re.S)
@@ -376,8 +377,9 @@ sudo tee /etc/aperture/labwc/rc.xml >/dev/null <<'RCX'
 <?xml version="1.0"?>
 <labwc_config>
   <windowRules>
-    <windowRule identifier="lab-desk"><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
-    <windowRule identifier="chrome-localhost__-*"><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
+    <windowRule identifier="lab-desk"><serverDecoration>no</serverDecoration><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher></windowRule>
+    <windowRule title="Lab Desk*"><serverDecoration>no</serverDecoration><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
+    <windowRule identifier="chrome-localhost__-*"><serverDecoration>no</serverDecoration><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher></windowRule>
   </windowRules>
 </labwc_config>
 RCX
