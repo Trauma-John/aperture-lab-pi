@@ -409,7 +409,7 @@ cat > ~/.local/share/retro-lab/lab-desk.html <<'LDHTML'
 :root{--bg:linear-gradient(#2a1b14,#3a2518);--panel:rgba(255,225,170,.08);--pstroke:rgba(255,225,170,.18);--text:#f0e0bd;--sub:#c9a77a;--acc:#e0873a;--acc2:#e7c06a;--track:rgba(255,225,170,.12);--halo:#d27a35;--word:#f0e0bd;--ho:.5}
 *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Gelasio,Georgia,"DejaVu Serif",serif;user-select:none}
 #bgart{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
-.w{position:absolute;background:var(--panel);border:1.5px solid var(--pstroke);border-radius:26px;padding:0;overflow:hidden;backdrop-filter:blur(3px);display:flex;flex-direction:column}
+.w{position:absolute;background:var(--panel);border:1.5px solid var(--pstroke);border-radius:26px;padding:0;overflow:hidden;contain:layout paint;display:flex;flex-direction:column}
 .w .bar{cursor:grab;display:flex;justify-content:space-between;align-items:center;padding:12px 18px 2px;font-size:14px;letter-spacing:2px;color:var(--sub);text-transform:uppercase}
 .w .bar:active{cursor:grabbing}.w .x{cursor:pointer;opacity:.5;font-size:18px;padding:0 4px;letter-spacing:0}.w .x:hover{opacity:1}
 .w .body{padding:4px 18px 14px;flex:1;min-height:0;font-size:16px;line-height:1.5}
@@ -417,12 +417,12 @@ cat > ~/.local/share/retro-lab/lab-desk.html <<'LDHTML'
 .row{display:flex;justify-content:space-between;gap:10px}.acc{color:var(--acc);font-weight:900}svg.g{width:100%;display:block}
 .track{height:10px;border-radius:5px;background:var(--track);margin:4px 0;overflow:hidden}.track i{display:block;height:100%;border-radius:5px;background:var(--acc)}
 #start{position:fixed;left:44px;bottom:14px;z-index:45}#ubtn{font:30px "DejaVu Sans Mono",monospace;color:var(--sub);cursor:pointer;padding:6px 14px;border-radius:16px}#ubtn:hover{background:var(--panel);color:var(--text)}
-#menu{display:none;position:absolute;bottom:58px;left:0;width:340px;max-height:70vh;background:var(--bg);border:1.5px solid var(--pstroke);border-radius:22px;padding:14px;box-shadow:0 0 40px rgba(0,0,0,.4);flex-direction:column}#menu.open{display:flex}
+#menu{display:none;position:absolute;bottom:58px;left:0;width:340px;max-height:70vh;background:var(--bg);border:1.5px solid var(--pstroke);border-radius:22px;padding:14px;box-shadow:0 0 12px rgba(0,0,0,.3);flex-direction:column}#menu.open{display:flex}
 #menu input{font:inherit;font-size:16px;color:var(--text);background:var(--panel);border:1.5px solid var(--pstroke);border-radius:14px;padding:9px 12px;outline:none;user-select:text}
 #apps{overflow:auto;margin:10px 0;flex:1}#apps div{padding:7px 10px;border-radius:10px;cursor:pointer;font-size:17px}#apps div:hover{background:var(--panel)}#apps h4{margin:10px 6px 2px;font-size:12px;letter-spacing:3px;color:var(--sub);font-weight:400}
 #pw button{font:inherit;font-size:14px;color:var(--text);background:var(--panel);border:1.5px solid var(--pstroke);border-radius:12px;padding:6px 10px;margin-right:6px;cursor:pointer}
 #tab{position:fixed;left:0;top:50%;transform:translateY(-50%);width:26px;height:90px;border-radius:0 16px 16px 0;background:var(--panel);border:1.5px solid var(--pstroke);border-left:0;color:var(--sub);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:50;font-size:18px}
-#side{position:fixed;left:-300px;top:0;bottom:0;width:270px;background:var(--bg);border-right:1.5px solid var(--pstroke);z-index:40;padding:20px;transition:left .2s;overflow:auto;box-shadow:0 0 40px rgba(0,0,0,.35)}
+#side{position:fixed;left:-300px;top:0;bottom:0;width:270px;background:var(--bg);border-right:1.5px solid var(--pstroke);z-index:40;padding:20px;transition:left .2s;overflow:auto;box-shadow:0 0 12px rgba(0,0,0,.3)}
 #side.open{left:0}#side h3{margin:0 0 10px;font-size:15px;letter-spacing:3px;color:var(--sub)}
 #side label{display:flex;align-items:center;gap:10px;padding:7px 4px;cursor:pointer;font-size:16px}#side input{accent-color:var(--acc);width:18px;height:18px}
 #side button{font:inherit;color:var(--text);background:var(--panel);border:1.5px solid var(--pstroke);border-radius:14px;padding:7px 12px;margin:3px 3px 3px 0;cursor:pointer}#side button.on{background:var(--acc);color:#2a1b14}
@@ -509,7 +509,7 @@ document.getElementById('ubtn').onclick=()=>{fetchP('/api/menu',{method:'POST',b
 document.getElementById('q').oninput=drawApps;
 document.querySelectorAll('#pw button').forEach(b=>b.onclick=()=>{if(confirm(b.textContent+'?'))fetchP('/api/power',{method:'POST',body:b.dataset.p})});
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#start'))document.getElementById('menu').classList.remove('open')});
-tick();setInterval(tick,2000);
+tick();setInterval(tick,3000);
 </script></body></html>
 LDHTML
 cat > ~/.local/share/retro-lab/settings.html <<'LSET'
@@ -656,7 +656,7 @@ B=$(command -v chromium || command -v chromium-browser || command -v vivaldi-sta
   while true; do
     pgrep -f lab-desk.py >/dev/null || (nohup python3 ~/.local/share/retro-lab/lab-desk.py >/dev/null 2>&1 &)
     for i in $(seq 1 40); do curl -s -o /dev/null http://localhost:8787/ && break; sleep 0.25; done
-    "$B" --class=lab-desk --app=http://localhost:8787 --start-maximized --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
+    "$B" --class=lab-desk --app=http://localhost:8787 --start-maximized --enable-gpu-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
     sleep 1
   done
 ) &

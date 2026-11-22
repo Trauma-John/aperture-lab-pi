@@ -115,7 +115,7 @@ B=$(command -v chromium || command -v chromium-browser || command -v vivaldi-sta
   while true; do
     pgrep -f lab-desk.py >/dev/null || (nohup python3 ~/.local/share/retro-lab/lab-desk.py >/dev/null 2>&1 &)
     for i in $(seq 1 40); do curl -s -o /dev/null http://localhost:8787/ && break; sleep 0.25; done
-    "$B" --class=lab-desk --app=http://localhost:8787 --start-maximized --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
+    "$B" --class=lab-desk --app=http://localhost:8787 --start-maximized --enable-gpu-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
     sleep 1
   done
 ) &
