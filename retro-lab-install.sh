@@ -1198,7 +1198,7 @@ fi
 echo "== Retro console (RetroArch) =="
 for p in unzip retroarch retroarch-assets libretro-core-info libretro-nestopia libretro-snes9x libretro-genesisplusgx libretro-gambatte libretro-mgba libretro-beetle-pce libretro-mupen64plus-next libretro-pcsx-rearmed; do
   echo "  installing $p ..."
-  sudo timeout 900 apt-get install -y -o DPkg::Lock::Timeout=300 -o Acquire::http::Timeout=30 -o Acquire::Retries=2 "$p" >/dev/null 2>&1 && echo "    ok" || echo "  (skipped $p, not available or too slow)"
+  sudo timeout 900 apt-get install -y -o DPkg::Lock::Timeout=300 -o Acquire::http::Timeout=30 -o Acquire::Retries=2 "$p" >/dev/null 2>&1 && echo "    ok" || echo "  ($p: not in Debian, using the libretro download instead)"
 done
 mkdir -p ~/ROMs/{NES,SNES,Genesis,GameBoy,GBA,N64,PSX,PCEngine} ~/.config/retroarch
 # PS1, N64, PC Engine and Dreamcast cores are not in Debian: fetch the 64-bit Pi builds from libretro
