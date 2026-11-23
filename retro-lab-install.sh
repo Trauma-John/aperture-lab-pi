@@ -272,9 +272,25 @@ def apps():
             ids = os.path.basename(f)
             out[ids] = dict(id=ids, name=e.get("Name", ids), exec=e["Exec"], term=e.get("Terminal", "").lower() == "true", cat=(e.get("Categories", "Other").split(";")[0] or "Other"))
     APPS.update(t=time.time(), list=sorted(out.values(), key=lambda a: a["name"].lower())); return APPS["list"]
+FAVF = HOME + "/.config/retro-lab/favs.json"
+def favs_load():
+    try: j = json.load(open(FAVF)); return dict(pins=list(j.get("pins", [])), counts=dict(j.get("counts", {})))
+    except Exception: return dict(pins=[], counts={})
+def favs_save(j):
+    os.makedirs(os.path.dirname(FAVF), exist_ok=True); json.dump(j, open(FAVF, "w"))
+def favs_op(j):
+    f = favs_load(); i = str(j.get("id", ""))[:120]
+    if j.get("op") == "pin" and i:
+        if i in f["pins"]: f["pins"].remove(i)
+        else: f["pins"].append(i)
+        favs_save(f)
+    return f
 def launch(i):
     a = next((x for x in apps() if x["id"] == i), None)
     if not a: return
+    if not i.startswith("lab-power-"):
+        try: f = favs_load(); f["counts"][i] = f["counts"].get(i, 0) + 1; favs_save(f)
+        except Exception: pass
     cmd = shlex.split(re.sub(r"%[a-zA-Z%]", "", a["exec"]))
     if a["term"]: cmd = ["x-terminal-emulator", "-e"] + cmd
     subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -495,6 +511,7 @@ class Q(http.server.BaseHTTPRequestHandler):
             except Exception: pass
             self.send(json.dumps(dict(cur=CUR, hist={k: list(v) for k, v in H.items()}, ping=list(PING), top=TOP, weather=WX["data"], cfg=cfg(), layout=lay)))
         elif self.path.startswith("/api/sys"): self.send(json.dumps(sysinfo(re.sub(r"[^a-z]", "", self.path.split("w=")[-1]))))
+        elif self.path.startswith("/api/favs"): self.send(json.dumps(favs_load()))
         elif self.path.startswith("/api/apps"): self.send(json.dumps(apps()))
         elif self.path.startswith("/api/settings"): self.send(json.dumps(settings_state()))
         elif self.path.startswith("/settings"): self.send(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.html")).read(), "text/html; charset=utf-8")
@@ -523,6 +540,9 @@ class Q(http.server.BaseHTTPRequestHandler):
             if self.headers.get("Host", "") not in ("localhost:8787", "127.0.0.1:8787"): return self.send("{}")
             try: return self.send(json.dumps(term_op(json.loads(b))))
             except Exception: return self.send("{}")
+        elif self.path == "/api/favs":
+            try: return self.send(json.dumps(favs_op(json.loads(b))))
+            except Exception: return self.send("{}")
         elif self.path == "/api/launch": launch(b)
         elif self.path == "/api/power": power_action(b)
         elif self.path == "/api/reset":
@@ -549,7 +569,7 @@ html{background:#2a1b14}*{box-sizing:border-box}html,body{margin:0;height:100%;o
 .big{font-size:44px;font-weight:900;line-height:1.1}.mid{font-size:26px}.sm{font-size:13px;color:var(--sub);letter-spacing:1px}
 .row{display:flex;justify-content:space-between;gap:10px}.acc{color:var(--acc);font-weight:900}svg.g{width:100%;display:block}
 .track{height:10px;border-radius:5px;background:var(--track);margin:4px 0;overflow:hidden}.track i{display:block;height:100%;border-radius:5px;background:var(--acc)}
-.w.tbig{left:6vw!important;top:6vh!important;width:88vw!important;height:84vh!important;z-index:60!important}.tm{flex:1;height:calc(100% - 24px);overflow:auto;background:rgba(0,0,0,.35);border-radius:12px;padding:8px 10px;outline:none;user-select:text;cursor:text}.tm pre{margin:0;color:#ffb000;font:14px/1.35 "DejaVu Sans Mono",monospace;white-space:pre-wrap;word-break:break-all}.tm:focus{box-shadow:0 0 0 1.5px var(--acc)}#start{position:fixed;left:44px;bottom:14px;z-index:45}#ubtn{font:30px "DejaVu Sans Mono",monospace;color:var(--sub);cursor:pointer;padding:6px 14px;border-radius:16px}#ubtn:hover{background:var(--panel);color:var(--text)}
+.w.tbig{left:6vw!important;top:6vh!important;width:88vw!important;height:84vh!important;z-index:60!important}.tm{flex:1;height:calc(100% - 24px);overflow:auto;background:rgba(0,0,0,.35);border-radius:12px;padding:8px 10px;outline:none;user-select:text;cursor:text}.tm pre{margin:0;color:#ffb000;font:14px/1.35 "DejaVu Sans Mono",monospace;white-space:pre-wrap;word-break:break-all}.tm:focus{box-shadow:0 0 0 1.5px var(--acc)}.fg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.ft{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:14px;cursor:pointer}.ft:hover{background:var(--panel)}.fi{width:46px;height:46px;border-radius:50%;background:var(--acc);color:#2a1b14;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:bold}.fn{font-size:12px;text-align:center;line-height:1.15;max-height:28px;overflow:hidden}#start{position:fixed;left:44px;bottom:14px;z-index:45}#ubtn{font:30px "DejaVu Sans Mono",monospace;color:var(--sub);cursor:pointer;padding:6px 14px;border-radius:16px}#ubtn:hover{background:var(--panel);color:var(--text)}
 #menu{display:none;position:absolute;bottom:58px;left:0;width:340px;max-height:70vh;background:var(--bg);border:1.5px solid var(--pstroke);border-radius:22px;padding:14px;box-shadow:0 0 12px rgba(0,0,0,.3);flex-direction:column}#menu.open{display:flex}
 #menu input{font:inherit;font-size:16px;color:var(--text);background:var(--panel);border:1.5px solid var(--pstroke);border-radius:14px;padding:9px 12px;outline:none;user-select:text}
 #apps{overflow:auto;margin:10px 0;flex:1}#apps div{padding:7px 10px;border-radius:10px;cursor:pointer;font-size:17px}#apps div:hover{background:var(--panel)}#apps h4{margin:10px 6px 2px;font-size:12px;letter-spacing:3px;color:var(--sub);font-weight:400}
@@ -604,6 +624,7 @@ const WIDGETS=[
 {id:'memory',title:'Memory',x:1480,y:640,w:400,h:130,on:1,r:d=>{const c=d.cur;return `<div class="row"><span>RAM</span><b>${f1(c.memUsedGB)} / ${f1(c.memTotalGB)} GB</b></div>${bar(c.mem)}<div class="row"><span>Apps have asked for</span><b>${f1(c.commitGB)} GB</b></div><div style="font-size:11px;opacity:.7">Normal to be above RAM. Apps ask for more than they use. Only the RAM bar matters.</div>`}},
 {id:'top',title:'Top apps (memory)',x:1480,y:790,w:400,h:210,on:1,r:d=>(d.top||[]).map(t=>`<div class="row"><span>${t[0]}</span><b>${f0(t[1])} MB</b></div>`).join('')},
 {id:'term',title:'Terminal',x:470,y:430,w:520,h:300,on:1,once:1,r:d=>`<div class="tm" tabindex="0"><pre></pre></div><div class="sm" style="opacity:.6;margin-top:4px">Click to enlarge. Esc to shrink. Simple terminal: for full programs use the start menu's Terminal.</div>`,init:b=>termInit(b)},
+{id:'favs',title:'Favorite apps',x:1010,y:260,w:440,h:250,on:1,once:1,r:d=>`<div class="fg"></div><div class="sm" style="opacity:.6;margin-top:6px">Right-click an app to pin or unpin it. Others rank by how often you open them.</div>`,init:b=>favInit(b)},
 {id:'ping',title:'Ping & jitter',x:470,y:260,w:330,h:150,on:0,r:d=>{const p=(d.ping||[]).filter(x=>x!=null),av=p.length?p.reduce((a,b)=>a+b,0)/p.length:null,j=p.length>1?p.slice(1).reduce((a,b,i)=>a+Math.abs(b-p[i]),0)/(p.length-1):null;return `<div class="row"><span>Ping <b>${f0(p[p.length-1])} ms</b></span><span>Jitter <b>${f1(j)} ms</b></span></div>${spark(p,55,[C().a])}`}},
 {id:'mail',title:'Mail',x:830,y:260,w:300,h:150,on:0,r:d=>{const t=(d.cfg&&d.cfg.mail_tab)||'gmail';return `<div class="row"><span><button class="mt ${t==='gmail'?'on':''}" onclick="mailTab('gmail')">Gmail</button> <button class="mt ${t==='proton'?'on':''}" onclick="mailTab('proton')">Proton Mail</button></span></div><div class="sm" style="margin:6px 0">Opens your ${t==='gmail'?'Gmail':'Proton Mail'} inbox in Vivaldi.</div><button class="mt" onclick="mailOpen()">Open inbox</button>`}},
 {id:'claude',title:'Claude usage',x:830,y:410,w:300,h:130,on:0,r:d=>'<div class="sm">Not connected yet. Needs a Claude usage key.</div>'}];
@@ -628,6 +649,16 @@ function termInit(body){const box=body.querySelector('.tm'),pre=box.querySelecto
   else if(e.key==='Enter')d='\r';else if(e.key==='Backspace')d='\x7f';else if(e.key==='Tab')d='\t';else if(e.key==='ArrowUp')d='\x1b[A';else if(e.key==='ArrowDown')d='\x1b[B';else if(e.key==='ArrowRight')d='\x1b[C';else if(e.key==='ArrowLeft')d='\x1b[D';
   else if(e.key.length===1&&!e.altKey)d=e.key;
   if(d!==null){e.preventDefault();send(d)}})}
+
+function favInit(body){const g=body.querySelector('.fg');let F={pins:[],counts:{}};
+ const DEF=['vivaldi','terminal','retro console','lab settings','rustdesk','jellyfin','seerr','radarr'];
+ function ids(){const A=(typeof APPS!=='undefined'?APPS:[]).filter(a=>!a.id.startsWith('lab-power-')&&!/^lab-(desk|splash|sounds|lock|idle)/.test(a.id)&&!a.id.startsWith('retro-theme-')),ok=new Set(A.map(a=>a.id));
+  let L=F.pins.filter(i=>ok.has(i));Object.entries(F.counts).sort((a,b)=>b[1]-a[1]).forEach(([i])=>{if(ok.has(i)&&!L.includes(i))L.push(i)});
+  DEF.forEach(n=>{const a=A.find(x=>x.name.toLowerCase().includes(n));if(a&&!L.includes(a.id))L.push(a.id)});return L.slice(0,8).map(i=>A.find(a=>a.id===i))}
+ function draw(){g.innerHTML=ids().map(a=>`<div class="ft" data-id="${a.id}"><div class="fi">${F.pins.includes(a.id)?'★':a.name[0].toUpperCase()}</div><div class="fn">${a.name.replace(/^Server: /,'')}</div></div>`).join('')||'<div class="sm">Loading apps…</div>';
+  g.querySelectorAll('.ft').forEach(t=>{t.onclick=()=>{fetchP('/api/launch',{method:'POST',body:t.dataset.id})};t.oncontextmenu=async e=>{e.preventDefault();F=await (await fetchP('/api/favs',{method:'POST',body:JSON.stringify({op:'pin',id:t.dataset.id})})).json();draw()}})}
+ async function load(){try{F=await (await fetch('/api/favs')).json()}catch(e){}draw()}
+ load();setInterval(load,8000)}
 function up(s){s=s||0;const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d}d ${h}h`:`${h}h ${m}m`}
 // ---------- build
 const desk=document.getElementById('desk'),els={};let z=10,saveT;
