@@ -21,6 +21,15 @@ while :; do
   [ -n "$P1" ] && [ "$P1" = "$P2" ] && break
   echo "  They didn't match, try again."
 done
+# 1b) Keyboard layout (default US; the image itself defaults to UK)
+echo
+read -r -p "Keyboard layout code, like us, gb, de, fr (Enter for us): " KB
+KB="${KB,,}"; [[ "$KB" =~ ^[a-z]{2,3}$ ]] || KB=us
+sed -i "s/^XKBLAYOUT=.*/XKBLAYOUT=\"$KB\"/" /etc/default/keyboard 2>/dev/null || true
+grep -q '^XKBLAYOUT=' /etc/default/keyboard || echo "XKBLAYOUT=\"$KB\"" >> /etc/default/keyboard
+setupcon --save 2>/dev/null || true
+install -d /etc/aperture/labwc
+echo "XKB_DEFAULT_LAYOUT=$KB" > /etc/aperture/labwc/environment
 # 2) Network
 online(){ [ "$(nmcli -t -g CONNECTIVITY general 2>/dev/null)" = "full" ]; }
 if ! online; then
