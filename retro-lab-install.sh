@@ -884,7 +884,7 @@ B=$(command -v chromium || command -v chromium-browser || command -v vivaldi-sta
   while true; do
     pgrep -f lab-desk.py >/dev/null || (nohup python3 ~/.local/share/retro-lab/lab-desk.py >/dev/null 2>&1 &)
     for i in $(seq 1 40); do curl -s -o /dev/null http://localhost:8787/ && break; sleep 0.25; done
-    "$B" --class=lab-desk --default-background-color=FF2A1B14 --app=http://localhost:8787 --start-maximized --enable-gpu-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
+    "$B" --class=lab-desk --default-background-color=FF2A1B14 --force-dark-mode --enable-features=WebContentsForceDark --app=http://localhost:8787 --start-maximized --enable-gpu-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
     sleep 1
   done
 ) &
@@ -1202,7 +1202,7 @@ word_sprite.SetPosition(W / 2 - 360 * s, H / 2 + 90 * s, 20);
 word_sprite.SetOpacity(0);
 counter = 0;
 mode = Plymouth.GetMode();
-if (mode == "shutdown" || mode == "reboot" || mode == "halt") counter = 195;
+if (mode == "shutdown" || mode == "reboot" || mode == "halt") counter = 210;
 fun refresh() {
   counter++;
   if (counter < 190) {
