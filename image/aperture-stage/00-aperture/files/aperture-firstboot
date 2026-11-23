@@ -53,7 +53,7 @@ if ! online; then
   fi
 fi
 # 3) Create the account, remove the temporary build account
-useradd -m -s /bin/bash -G sudo,video,audio,input,netdev,plugdev,render,users "$U"
+useradd -m -s /bin/bash -G sudo,adm,systemd-journal,video,audio,input,netdev,plugdev,render,users "$U"
 echo "$U:$P1" | chpasswd
 for b in $(getent passwd | awk -F: '$3==1000 && $1!="'"$U"'" {print $1}'); do userdel -r "$b" 2>/dev/null || true; done
 unset P1 P2 WP
