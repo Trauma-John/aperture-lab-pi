@@ -1020,7 +1020,7 @@ cat > ~/.config/waybar/config <<'WB'
   "custom/start": { "format": "User: @@USER@@", "on-click": "curl -s -X POST -H 'X-Lab: 1' -d apps http://localhost:8787/api/menu", "tooltip": false },
   "wlr/taskbar": { "format": "{icon} {title}", "icon-size": 18, "tooltip": false, "on-click": "activate", "on-click-middle": "close", "max-length": 24, "ignore-list": ["lab-desk", "chrome-localhost__-Default"] },
   "tray": { "spacing": 10 },
-  "network": { "format-wifi": "wifi {signalStrength}%", "format-ethernet": "net", "format-disconnected": "offline", "tooltip": false },
+  "network": { "on-click": "$HOME/.local/bin/lab-settings", "format-wifi": "wifi {signalStrength}%", "format-ethernet": "net", "format-disconnected": "offline", "tooltip": false },
   "pulseaudio": { "format": "vol {volume}%", "format-muted": "muted", "on-click": "pavucontrol", "tooltip": false },
   "custom/power": { "format": "power", "on-click": "curl -s -X POST -H 'X-Lab: 1' -d power http://localhost:8787/api/menu", "tooltip": false }
 }
