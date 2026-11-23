@@ -160,6 +160,7 @@ if [ -z "$URL" ]; then echo "No update address set yet. Ask Claude for the lates
 curl -fsSL "$URL" -o /tmp/retro-lab-install.sh && bash /tmp/retro-lab-install.sh
 UP
 chmod +x ~/.local/bin/retro-update
+sudo ln -sf "$HOME/.local/bin/retro-update" /usr/local/bin/retro-update 2>/dev/null || true
 U="https://raw.githubusercontent.com/Trauma-John/aperture-lab-pi/main/retro-lab-install.sh"
 if grep -q '^update_url=' ~/.config/retro-lab/config; then sed -i "s|^update_url=\$|update_url=$U|" ~/.config/retro-lab/config; else echo "update_url=$U" >> ~/.config/retro-lab/config; fi
 
