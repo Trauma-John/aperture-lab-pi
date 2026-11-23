@@ -332,6 +332,42 @@ def menu(kind):
         power_action({"Lock": "lock", "Log out": "logout", "Restart": "reboot", "Shut down": "shutdown"}.get(o, ""))
     else: subprocess.run(["wofi", "--show", "drun", "--prompt", "Search"])
 
+# ---- small live terminal for the desk widget (plain text, TERM=dumb)
+import pty, fcntl, termios, struct as _st, select
+TM = dict(fd=None, pid=None, buf=bytearray(), base=0, lock=threading.Lock())
+def term_start():
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.chdir(HOME); os.environ.update(TERM="dumb", PS1="\\w $ ", HISTCONTROL="ignoredups")
+        os.execvp("bash", ["bash", "--norc", "-i"])
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, _st.pack("HHHH", 30, 110, 0, 0))
+    TM.update(fd=fd, pid=pid)
+    def rd():
+        while True:
+            try:
+                r, _, _ = select.select([fd], [], [], 1)
+                if not r: continue
+                d = os.read(fd, 4096)
+            except OSError: d = b""
+            if not d:
+                with TM["lock"]: TM["buf"] += b"\r\n[shell ended - press a key to start a new one]\r\n"; TM["fd"] = None
+                try: os.waitpid(pid, 0)
+                except OSError: pass
+                return
+            with TM["lock"]:
+                TM["buf"] += d
+                if len(TM["buf"]) > 200000: cut = len(TM["buf"]) - 100000; TM["buf"] = TM["buf"][cut:]; TM["base"] += cut
+    threading.Thread(target=rd, daemon=True).start()
+def term_op(j):
+    if TM["fd"] is None and j.get("op") == "in": term_start()
+    if TM["fd"] is None and TM["pid"] is None: term_start()
+    if j.get("op") == "in":
+        try: os.write(TM["fd"], str(j.get("d", ""))[:4096].encode())
+        except Exception: pass
+    with TM["lock"]:
+        since = max(int(j.get("since", 0)), TM["base"])
+        d = bytes(TM["buf"][since - TM["base"]:])
+        return dict(off=TM["base"] + len(TM["buf"]), d=d.decode("utf-8", "replace"))
 KEYS = {"mode", "dawn", "day", "dusk", "night", "sounds", "sound_style", "sound_volume", "splash", "server_name", "server_lan", "server_share", "port_jellyfin", "port_seerr", "pc_name", "pc_mac", "server_user", "extras", "mail_tab"}
 def setkey(k, v):
     if k not in KEYS or not re.match(r"^[A-Za-z0-9._:/ -]{0,80}$", v): return False
@@ -483,6 +519,10 @@ class Q(http.server.BaseHTTPRequestHandler):
         elif self.path == "/api/mail":
             u = {"gmail": "https://mail.google.com/", "proton": "https://mail.proton.me/"}.get(cfg().get("mail_tab"), "https://mail.google.com/")
             subprocess.Popen(["xdg-open", u], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif self.path == "/api/term":
+            if self.headers.get("Host", "") not in ("localhost:8787", "127.0.0.1:8787"): return self.send("{}")
+            try: return self.send(json.dumps(term_op(json.loads(b))))
+            except Exception: return self.send("{}")
         elif self.path == "/api/launch": launch(b)
         elif self.path == "/api/power": power_action(b)
         elif self.path == "/api/reset":
@@ -509,7 +549,7 @@ html{background:#2a1b14}*{box-sizing:border-box}html,body{margin:0;height:100%;o
 .big{font-size:44px;font-weight:900;line-height:1.1}.mid{font-size:26px}.sm{font-size:13px;color:var(--sub);letter-spacing:1px}
 .row{display:flex;justify-content:space-between;gap:10px}.acc{color:var(--acc);font-weight:900}svg.g{width:100%;display:block}
 .track{height:10px;border-radius:5px;background:var(--track);margin:4px 0;overflow:hidden}.track i{display:block;height:100%;border-radius:5px;background:var(--acc)}
-#start{position:fixed;left:44px;bottom:14px;z-index:45}#ubtn{font:30px "DejaVu Sans Mono",monospace;color:var(--sub);cursor:pointer;padding:6px 14px;border-radius:16px}#ubtn:hover{background:var(--panel);color:var(--text)}
+.w.tbig{left:6vw!important;top:6vh!important;width:88vw!important;height:84vh!important;z-index:60!important}.tm{flex:1;height:calc(100% - 24px);overflow:auto;background:rgba(0,0,0,.35);border-radius:12px;padding:8px 10px;outline:none;user-select:text;cursor:text}.tm pre{margin:0;color:#ffb000;font:14px/1.35 "DejaVu Sans Mono",monospace;white-space:pre-wrap;word-break:break-all}.tm:focus{box-shadow:0 0 0 1.5px var(--acc)}#start{position:fixed;left:44px;bottom:14px;z-index:45}#ubtn{font:30px "DejaVu Sans Mono",monospace;color:var(--sub);cursor:pointer;padding:6px 14px;border-radius:16px}#ubtn:hover{background:var(--panel);color:var(--text)}
 #menu{display:none;position:absolute;bottom:58px;left:0;width:340px;max-height:70vh;background:var(--bg);border:1.5px solid var(--pstroke);border-radius:22px;padding:14px;box-shadow:0 0 12px rgba(0,0,0,.3);flex-direction:column}#menu.open{display:flex}
 #menu input{font:inherit;font-size:16px;color:var(--text);background:var(--panel);border:1.5px solid var(--pstroke);border-radius:14px;padding:9px 12px;outline:none;user-select:text}
 #apps{overflow:auto;margin:10px 0;flex:1}#apps div{padding:7px 10px;border-radius:10px;cursor:pointer;font-size:17px}#apps div:hover{background:var(--panel)}#apps h4{margin:10px 6px 2px;font-size:12px;letter-spacing:3px;color:var(--sub);font-weight:400}
@@ -563,10 +603,31 @@ const WIDGETS=[
 {id:'disk',title:'Disk',x:1480,y:450,w:400,h:170,on:1,r:d=>`<div class="row"><span>Read <b>${rate(d.cur.dread||0)}</b></span><span>Write <b>${rate(d.cur.dwrite||0)}</b></span></div>${spark([d.hist.dread,d.hist.dwrite],55,[C().a,C().b])}<div class="row sm"><span>${f0(d.cur.diskPct)}% used</span><span>${f0(d.cur.diskFreeGB)} GB free</span></div>`},
 {id:'memory',title:'Memory',x:1480,y:640,w:400,h:130,on:1,r:d=>{const c=d.cur;return `<div class="row"><span>RAM</span><b>${f1(c.memUsedGB)} / ${f1(c.memTotalGB)} GB</b></div>${bar(c.mem)}<div class="row"><span>Apps have asked for</span><b>${f1(c.commitGB)} GB</b></div><div style="font-size:11px;opacity:.7">Normal to be above RAM. Apps ask for more than they use. Only the RAM bar matters.</div>`}},
 {id:'top',title:'Top apps (memory)',x:1480,y:790,w:400,h:210,on:1,r:d=>(d.top||[]).map(t=>`<div class="row"><span>${t[0]}</span><b>${f0(t[1])} MB</b></div>`).join('')},
+{id:'term',title:'Terminal',x:470,y:430,w:520,h:300,on:1,once:1,r:d=>`<div class="tm" tabindex="0"><pre></pre></div><div class="sm" style="opacity:.6;margin-top:4px">Click to enlarge. Esc to shrink. Simple terminal: for full programs use the start menu's Terminal.</div>`,init:b=>termInit(b)},
 {id:'ping',title:'Ping & jitter',x:470,y:260,w:330,h:150,on:0,r:d=>{const p=(d.ping||[]).filter(x=>x!=null),av=p.length?p.reduce((a,b)=>a+b,0)/p.length:null,j=p.length>1?p.slice(1).reduce((a,b,i)=>a+Math.abs(b-p[i]),0)/(p.length-1):null;return `<div class="row"><span>Ping <b>${f0(p[p.length-1])} ms</b></span><span>Jitter <b>${f1(j)} ms</b></span></div>${spark(p,55,[C().a])}`}},
 {id:'mail',title:'Mail',x:830,y:260,w:300,h:150,on:0,r:d=>{const t=(d.cfg&&d.cfg.mail_tab)||'gmail';return `<div class="row"><span><button class="mt ${t==='gmail'?'on':''}" onclick="mailTab('gmail')">Gmail</button> <button class="mt ${t==='proton'?'on':''}" onclick="mailTab('proton')">Proton Mail</button></span></div><div class="sm" style="margin:6px 0">Opens your ${t==='gmail'?'Gmail':'Proton Mail'} inbox in Vivaldi.</div><button class="mt" onclick="mailOpen()">Open inbox</button>`}},
 {id:'claude',title:'Claude usage',x:830,y:410,w:300,h:130,on:0,r:d=>'<div class="sm">Not connected yet. Needs a Claude usage key.</div>'}];
 const mailTab=async t=>{await fetchP('/api/set',{method:'POST',body:JSON.stringify({k:'mail_tab',v:t})});tick()};const mailOpen=()=>fetchP('/api/mail',{method:'POST',body:''});
+
+function termInit(body){const box=body.querySelector('.tm'),pre=box.querySelector('pre'),wd=els.term;let off=0,lines=[''],col=0,carry='',busy=0;
+ const put=c=>{let l=lines[lines.length-1];lines[lines.length-1]=l.slice(0,col)+c+l.slice(col+1);col++};
+ function feed(s){s=carry+s;carry='';for(let i=0;i<s.length;i++){const c=s[i];
+  if(c==='\x1b'){if(i+1>=s.length){carry=s.slice(i);break}const n=s[i+1];
+   if(n==='['){const m=/[@-~]/.exec(s.slice(i+2));if(!m){carry=s.slice(i);break}const j=i+2+m.index,f=s[j],q=s.slice(i+2,j);
+    if(f==='K'){lines[lines.length-1]=lines[lines.length-1].slice(0,col)}else if(f==='J'&&q.includes('2')){lines=[''];col=0}i=j}
+   else if(n===']'){const e=s.indexOf('\x07',i);if(e<0){carry=s.slice(i);break}i=e}else i++;continue}
+  if(c==='\r')col=0;else if(c==='\n'){lines.push('');col=0}else if(c==='\b')col=Math.max(0,col-1);else if(c==='\x07'){}else put(c)}
+  if(lines.length>400)lines=lines.slice(-300);pre.textContent=lines.join('\n');box.scrollTop=box.scrollHeight}
+ async function poll(body_){if(busy)return;busy=1;try{const r=await (await fetchP('/api/term',{method:'POST',body:JSON.stringify(Object.assign({op:'read',since:off},body_||{}))})).json();if(r.d!==undefined){off=r.off;if(r.d)feed(r.d)}}catch(e){}busy=0}
+ const send=d=>{poll({op:'in',d}).then(()=>setTimeout(poll,60))};
+ setInterval(()=>{if(els.term.style.display!=='none')poll()},350);poll();
+ const big=on=>{wd.classList.toggle('tbig',on);if(on)box.focus()};
+ box.addEventListener('click',()=>{if(!wd.classList.contains('tbig'))big(true);box.focus()});
+ box.addEventListener('keydown',e=>{if(e.key==='Escape'){big(false);e.preventDefault();return}if(e.metaKey)return;let d=null;
+  if(e.ctrlKey&&e.key.length===1){const k=e.key.toLowerCase().charCodeAt(0);if(k>=97&&k<=122)d=String.fromCharCode(k-96)}
+  else if(e.key==='Enter')d='\r';else if(e.key==='Backspace')d='\x7f';else if(e.key==='Tab')d='\t';else if(e.key==='ArrowUp')d='\x1b[A';else if(e.key==='ArrowDown')d='\x1b[B';else if(e.key==='ArrowRight')d='\x1b[C';else if(e.key==='ArrowLeft')d='\x1b[D';
+  else if(e.key.length===1&&!e.altKey)d=e.key;
+  if(d!==null){e.preventDefault();send(d)}})}
 function up(s){s=s||0;const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d}d ${h}h`:`${h}h ${m}m`}
 // ---------- build
 const desk=document.getElementById('desk'),els={};let z=10,saveT;
@@ -592,7 +653,7 @@ let first=1;
 async function tick(){try{D=await (await fetch('/api/stats')).json()}catch(e){return}
  if(first){first=0;layout=D.layout||{};build();lst()}
  theme(D.cfg);document.getElementById('uname').textContent=D.cur.user||'';
- WIDGETS.forEach(w=>{if(pos(w).on)els[w.id].querySelector('.body').innerHTML=w.r(D)})}
+ WIDGETS.forEach(w=>{if(!pos(w).on)return;const b=els[w.id].querySelector('.body');if(w.once){if(b.dataset.built)return;b.dataset.built=1;b.innerHTML=w.r(D);w.init&&w.init(b)}else b.innerHTML=w.r(D)})}
 let APPS=[];
 async function loadApps(){try{APPS=await (await fetch('/api/apps')).json()}catch(e){}drawApps()}
 function drawApps(){const q=document.getElementById('q').value.toLowerCase(),g={};APPS.filter(a=>a.name.toLowerCase().includes(q)).forEach(a=>(g[a.cat]=g[a.cat]||[]).push(a));
@@ -863,7 +924,7 @@ sudo tee /etc/aperture/labwc/rc.xml >/dev/null <<'RCX'
     <default />
     <keybind key="W-Tab"><action name="NextWindow"/></keybind>
     <keybind key="W-q"><action name="Close"/></keybind>
-    <keybind key="W-Return"><action name="Execute"><command>foot</command></action></keybind>
+    <keybind key="W-Return"><action name="Execute"><command>foot -T Terminal</command></action></keybind>
   </keyboard>
 </labwc_config>
 RCX
@@ -1240,12 +1301,13 @@ Icon=system-$([ $pk = shutdown ] && echo shutdown || echo $pk)
 Categories=System;
 PWD
 done
+for hf in foot foot-server footclient; do printf '[Desktop Entry]\nType=Application\nName=foot\nExec=foot\nNoDisplay=true\n' > ~/.local/share/applications/$hf.desktop; done
 cat > ~/.local/share/applications/lab-terminal.desktop <<'AS'
 [Desktop Entry]
 Type=Application
 Name=Terminal
 Comment=Type commands (Win+Enter)
-Exec=foot
+Exec=foot -T Terminal
 Icon=utilities-terminal
 Categories=System;TerminalEmulator;
 AS
