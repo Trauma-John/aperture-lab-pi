@@ -34,3 +34,4 @@ cifs-utils
 openssh-server
 avahi-daemon
 libnss-mdns
+accountsservice
