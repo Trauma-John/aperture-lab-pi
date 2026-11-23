@@ -497,7 +497,7 @@ cat > ~/.local/share/retro-lab/lab-desk.html <<'LDHTML'
 <!doctype html><html><head><meta charset="utf-8"><title>Lab Desk</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{--bg:linear-gradient(#2a1b14,#3a2518);--panel:rgba(255,225,170,.08);--pstroke:rgba(255,225,170,.18);--text:#f0e0bd;--sub:#c9a77a;--acc:#e0873a;--acc2:#e7c06a;--track:rgba(255,225,170,.12);--halo:#d27a35;--word:#f0e0bd;--ho:.5}
-*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Gelasio,Georgia,"DejaVu Serif",serif;user-select:none}
+html{background:#2a1b14}*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Gelasio,Georgia,"DejaVu Serif",serif;user-select:none}
 #bgart{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
 .w{position:absolute;background:var(--panel);border:1.5px solid var(--pstroke);border-radius:26px;padding:0;overflow:hidden;contain:layout paint;display:flex;flex-direction:column}
 .w .bar{cursor:grab;display:flex;justify-content:space-between;align-items:center;padding:12px 18px 2px;font-size:14px;letter-spacing:2px;color:var(--sub);text-transform:uppercase}
@@ -787,7 +787,7 @@ B=$(command -v chromium || command -v chromium-browser || command -v vivaldi-sta
   while true; do
     pgrep -f lab-desk.py >/dev/null || (nohup python3 ~/.local/share/retro-lab/lab-desk.py >/dev/null 2>&1 &)
     for i in $(seq 1 40); do curl -s -o /dev/null http://localhost:8787/ && break; sleep 0.25; done
-    "$B" --class=lab-desk --app=http://localhost:8787 --start-maximized --enable-gpu-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
+    "$B" --class=lab-desk --default-background-color=FF2A1B14 --app=http://localhost:8787 --start-maximized --enable-gpu-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --no-first-run --user-data-dir="$HOME/.cache/retro-lab/browser"
     sleep 1
   done
 ) &
