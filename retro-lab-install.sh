@@ -860,6 +860,7 @@ sudo tee /etc/aperture/labwc/rc.xml >/dev/null <<'RCX'
     <default />
     <keybind key="W-Tab"><action name="NextWindow"/></keybind>
     <keybind key="W-q"><action name="Close"/></keybind>
+    <keybind key="W-Return"><action name="Execute"><command>foot</command></action></keybind>
   </keyboard>
 </labwc_config>
 RCX
@@ -1224,6 +1225,15 @@ libretro_directory = "$HOME/.local/share/retro-lab/cores"
 libretro_info_path = "/usr/share/libretro/info"
 RA
 fi
+cat > ~/.local/share/applications/lab-terminal.desktop <<'AS'
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=Type commands (Win+Enter)
+Exec=foot
+Icon=utilities-terminal
+Categories=System;TerminalEmulator;
+AS
 cat > ~/.local/share/applications/retro-console.desktop <<'AS'
 [Desktop Entry]
 Type=Application
