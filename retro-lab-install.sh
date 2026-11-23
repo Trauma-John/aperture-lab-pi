@@ -5,6 +5,7 @@
 set -e
 HOSTNAME_NEW="aperture-lab"      # change this line if you want a different computer name
 if [ "$(id -u)" = "0" ]; then echo "Run this as your normal user, not with sudo."; exit 1; fi
+if [ -n "$LAB_WIDGET_TERM" ]; then echo "Please run this in the Terminal app (start menu > Terminal, or Win+Enter), not in the desktop widget. The update restarts the desktop, which would close the widget."; exit 1; fi
 echo "== 1/7 Installing packages =="
 sudo apt-get update
 sudo apt-get install -y librsvg2-bin waybar wofi plymouth plymouth-themes fonts-dejavu curl python3 swaybg wlr-randr bluez cifs-utils
@@ -355,7 +356,7 @@ TM = dict(fd=None, pid=None, buf=bytearray(), base=0, lock=threading.Lock())
 def term_start():
     pid, fd = pty.fork()
     if pid == 0:
-        os.chdir(HOME); os.environ.update(TERM="dumb", PS1="\\w $ ", HISTCONTROL="ignoredups")
+        os.chdir(HOME); os.environ.update(LAB_WIDGET_TERM="1", TERM="dumb", PS1="\\w $ ", HISTCONTROL="ignoredups")
         os.execvp("bash", ["bash", "--norc", "-i"])
     fcntl.ioctl(fd, termios.TIOCSWINSZ, _st.pack("HHHH", 30, 110, 0, 0))
     TM.update(fd=fd, pid=pid)
@@ -570,7 +571,7 @@ html{background:#2a1b14}*{box-sizing:border-box}html,body{margin:0;height:100%;o
 .big{font-size:44px;font-weight:900;line-height:1.1}.mid{font-size:26px}.sm{font-size:13px;color:var(--sub);letter-spacing:1px}
 .row{display:flex;justify-content:space-between;gap:10px}.acc{color:var(--acc);font-weight:900}svg.g{width:100%;display:block}
 .track{height:10px;border-radius:5px;background:var(--track);margin:4px 0;overflow:hidden}.track i{display:block;height:100%;border-radius:5px;background:var(--acc)}
-.w.tbig{left:6vw!important;top:6vh!important;width:88vw!important;height:84vh!important;z-index:60!important}.tm{flex:1;height:calc(100% - 24px);overflow:auto;background:rgba(0,0,0,.35);border-radius:12px;padding:8px 10px;outline:none;user-select:text;cursor:text}.tm pre{margin:0;color:#ffb000;font:14px/1.35 "DejaVu Sans Mono",monospace;white-space:pre-wrap;word-break:break-all}.tm:focus{box-shadow:0 0 0 1.5px var(--acc)}.fg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.ft{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:14px;cursor:pointer}.ft:hover{background:var(--panel)}.fi{width:46px;height:46px;border-radius:50%;background:var(--acc);color:#2a1b14;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:bold}.fn{font-size:12px;text-align:center;line-height:1.15;max-height:28px;overflow:hidden}#start{position:fixed;left:44px;bottom:14px;z-index:45}#ubtn{font:30px "DejaVu Sans Mono",monospace;color:var(--sub);cursor:pointer;padding:6px 14px;border-radius:16px}#ubtn:hover{background:var(--panel);color:var(--text)}
+.w.tbig{left:6vw!important;top:6vh!important;width:88vw!important;height:84vh!important;z-index:9000!important;background:var(--bg)!important;box-shadow:0 0 0 100vmax rgba(0,0,0,.55),0 10px 40px rgba(0,0,0,.6)}.w.tbig .tm{background:#140c05}.tm{flex:1;height:calc(100% - 24px);overflow:auto;background:rgba(0,0,0,.35);border-radius:12px;padding:8px 10px;outline:none;user-select:text;cursor:text}.tm pre{margin:0;color:#ffb000;font:14px/1.35 "DejaVu Sans Mono",monospace;white-space:pre-wrap;word-break:break-all}.tm:focus{box-shadow:0 0 0 1.5px var(--acc)}.fg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.ft{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:14px;cursor:pointer}.ft:hover{background:var(--panel)}.fi{width:46px;height:46px;border-radius:50%;background:var(--acc);color:#2a1b14;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:bold}.fn{font-size:12px;text-align:center;line-height:1.15;max-height:28px;overflow:hidden}#start{position:fixed;left:44px;bottom:14px;z-index:45}#ubtn{font:30px "DejaVu Sans Mono",monospace;color:var(--sub);cursor:pointer;padding:6px 14px;border-radius:16px}#ubtn:hover{background:var(--panel);color:var(--text)}
 #menu{display:none;position:absolute;bottom:58px;left:0;width:340px;max-height:70vh;background:var(--bg);border:1.5px solid var(--pstroke);border-radius:22px;padding:14px;box-shadow:0 0 12px rgba(0,0,0,.3);flex-direction:column}#menu.open{display:flex}
 #menu input{font:inherit;font-size:16px;color:var(--text);background:var(--panel);border:1.5px solid var(--pstroke);border-radius:14px;padding:9px 12px;outline:none;user-select:text}
 #apps{overflow:auto;margin:10px 0;flex:1}#apps div{padding:7px 10px;border-radius:10px;cursor:pointer;font-size:17px}#apps div:hover{background:var(--panel)}#apps h4{margin:10px 6px 2px;font-size:12px;letter-spacing:3px;color:var(--sub);font-weight:400}
