@@ -274,6 +274,27 @@ def apps():
             ids = os.path.basename(f)
             out[ids] = dict(id=ids, name=e.get("Name", ids), exec=e["Exec"], term=e.get("Terminal", "").lower() == "true", cat=(e.get("Categories", "Other").split(";")[0] or "Other"))
     APPS.update(t=time.time(), list=sorted(out.values(), key=lambda a: a["name"].lower())); return APPS["list"]
+VPN = {"t": 0, "d": {}}
+def vpn_status():
+    if time.time() - VPN["t"] < 6 and VPN["d"]: return VPN["d"]
+    d = dict(proton=False, proton_name="", ts_state="unknown", ts_ip="", ts_peers=0, ts_exit="")
+    try:
+        for ln in subprocess.run(["nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "con", "show", "--active"], capture_output=True, text=True, timeout=5).stdout.splitlines():
+            n, t, dev = (ln.split(":") + ["", "", ""])[:3]
+            if ("proton" in n.lower()) or (t in ("wireguard", "vpn") and "proton" in n.lower()): d["proton"] = True; d["proton_name"] = n
+        if not d["proton"]:
+            for ln in subprocess.run(["nmcli", "-t", "-f", "NAME,TYPE", "con", "show", "--active"], capture_output=True, text=True, timeout=5).stdout.splitlines():
+                if ln.split(":")[-1] in ("wireguard", "vpn") and "tailscale" not in ln.lower(): d["proton"] = True; d["proton_name"] = ln.split(":")[0]
+    except Exception: pass
+    try:
+        j = json.loads(subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True, timeout=6).stdout)
+        d["ts_state"] = j.get("BackendState", "unknown"); d["ts_ip"] = (j.get("TailscaleIPs") or [""])[0]
+        peers = j.get("Peer") or {}
+        d["ts_peers"] = sum(1 for p in peers.values() if p.get("Online"))
+        ex = [p for p in peers.values() if p.get("ExitNode")]
+        d["ts_exit"] = (ex[0].get("HostName", "") if ex else "")
+    except Exception: pass
+    VPN.update(t=time.time(), d=d); return d
 FAVF = HOME + "/.config/retro-lab/favs.json"
 def favs_load():
     try: j = json.load(open(FAVF)); return dict(pins=list(j.get("pins", [])), counts=dict(j.get("counts", {})))
@@ -513,6 +534,7 @@ class Q(http.server.BaseHTTPRequestHandler):
             except Exception: pass
             self.send(json.dumps(dict(cur=CUR, hist={k: list(v) for k, v in H.items()}, ping=list(PING), top=TOP, weather=WX["data"], cfg=cfg(), layout=lay)))
         elif self.path.startswith("/api/sys"): self.send(json.dumps(sysinfo(re.sub(r"[^a-z]", "", self.path.split("w=")[-1]))))
+        elif self.path.startswith("/api/vpn"): self.send(json.dumps(vpn_status()))
         elif self.path.startswith("/api/favs"): self.send(json.dumps(favs_load()))
         elif self.path.startswith("/api/apps"): self.send(json.dumps(apps()))
         elif self.path.startswith("/api/settings"): self.send(json.dumps(settings_state()))
@@ -627,6 +649,10 @@ const WIDGETS=[
 {id:'top',title:'Top apps (memory)',x:1480,y:790,w:400,h:210,on:1,r:d=>(d.top||[]).map(t=>`<div class="row"><span>${t[0]}</span><b>${f0(t[1])} MB</b></div>`).join('')},
 {id:'term',title:'Terminal',x:470,y:430,w:520,h:300,on:1,once:1,r:d=>`<div class="tm" tabindex="0"><pre></pre></div><div class="sm" style="opacity:.6;margin-top:4px">Click to enlarge. Esc to shrink. Simple terminal: for full programs use the start menu's Terminal.</div>`,init:b=>termInit(b)},
 {id:'favs',title:'Favorite apps',x:1010,y:260,w:440,h:250,on:1,once:1,r:d=>`<div class="fg"></div><div class="sm" style="opacity:.6;margin-top:6px">Right-click an app to pin or unpin it. Others rank by how often you open them.</div>`,init:b=>favInit(b)},
+{id:'vpn',title:'VPN & Tailscale',x:1010,y:530,w:440,h:170,on:1,once:1,r:d=>`<div class="vp"></div>`,init:b=>{const el=b.querySelector('.vp');const row=(n,ok,t)=>`<div class="row"><span>${n}</span><b style="color:${ok===null?'inherit':ok?'#8fd18a':'#e0873a'}">${ok===null?'…':ok?'● ':'○ '}${t}</b></div>`;
+ async function load(){try{const v=await (await fetch('/api/vpn')).json();
+  el.innerHTML=row('Proton VPN',v.proton,v.proton?(v.proton_name||'connected'):'not connected')+row('Tailscale',v.ts_state==='Running',v.ts_state==='Running'?v.ts_ip:v.ts_state)+`<div class="sm" style="margin-top:4px">${v.ts_state==='Running'?v.ts_peers+' device'+(v.ts_peers==1?'':'s')+' online'+(v.ts_exit?' · exit node '+v.ts_exit:''):'Tailscale is not signed in'}</div>`}catch(e){}}
+ load();setInterval(load,8000)}},
 {id:'ping',title:'Ping & jitter',x:470,y:260,w:330,h:150,on:0,r:d=>{const p=(d.ping||[]).filter(x=>x!=null),av=p.length?p.reduce((a,b)=>a+b,0)/p.length:null,j=p.length>1?p.slice(1).reduce((a,b,i)=>a+Math.abs(b-p[i]),0)/(p.length-1):null;return `<div class="row"><span>Ping <b>${f0(p[p.length-1])} ms</b></span><span>Jitter <b>${f1(j)} ms</b></span></div>${spark(p,55,[C().a])}`}},
 {id:'mail',title:'Mail',x:830,y:260,w:300,h:150,on:0,r:d=>{const t=(d.cfg&&d.cfg.mail_tab)||'gmail';return `<div class="row"><span><button class="mt ${t==='gmail'?'on':''}" onclick="mailTab('gmail')">Gmail</button> <button class="mt ${t==='proton'?'on':''}" onclick="mailTab('proton')">Proton Mail</button></span></div><div class="sm" style="margin:6px 0">Opens your ${t==='gmail'?'Gmail':'Proton Mail'} inbox in Vivaldi.</div><button class="mt" onclick="mailOpen()">Open inbox</button>`}},
 {id:'claude',title:'Claude usage',x:830,y:410,w:300,h:130,on:0,r:d=>'<div class="sm">Not connected yet. Needs a Claude usage key.</div>'}];
