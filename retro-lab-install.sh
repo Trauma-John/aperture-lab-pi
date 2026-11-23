@@ -1103,6 +1103,7 @@ word_sprite = Sprite(word);
 word_sprite.SetPosition(W / 2 - 360 * s, H / 2 + 90 * s, 20);
 word_sprite.SetOpacity(0);
 counter = 0;
+if (Plymouth.GetMode() == "shutdown") counter = 195;
 fun refresh() {
   counter++;
   if (counter < 190) {
@@ -1170,8 +1171,8 @@ for f in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
   [ -f "$f" ] && ! grep -q splash "$f" && sudo sed -i 's/$/ quiet splash plymouth.ignore-serial-consoles/' "$f" || true
 done
 sudo plymouth-set-default-theme -R aperture || echo "(boot splash step skipped, everything else still works)"
-# No boot animation on shutdown/restart (it only belongs at start-up)
-sudo systemctl mask plymouth-poweroff.service plymouth-reboot.service plymouth-halt.service plymouth-kexec.service 2>/dev/null || true
+# Shutdown/restart show only the logo (no typing animation); undo any earlier mask
+sudo systemctl unmask plymouth-poweroff.service plymouth-reboot.service plymouth-halt.service plymouth-kexec.service 2>/dev/null || true
 
 echo "== 5/7 Soft retro colours for apps =="
 for v in gtk-3.0 gtk-4.0; do
