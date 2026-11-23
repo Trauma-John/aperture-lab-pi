@@ -1201,7 +1201,7 @@ word_sprite = Sprite(word);
 word_sprite.SetPosition(W / 2 - 360 * s, H / 2 + 90 * s, 20);
 word_sprite.SetOpacity(0);
 counter = 0;
-if (Plymouth.GetMode() == "shutdown") counter = 195;
+if (Plymouth.GetMode() != "boot") counter = 195;
 fun refresh() {
   counter++;
   if (counter < 190) {
