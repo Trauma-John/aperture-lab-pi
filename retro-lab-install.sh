@@ -856,6 +856,11 @@ sudo tee /etc/aperture/labwc/rc.xml >/dev/null <<'RCX'
     <windowRule title="Lab Desk*"><serverDecoration>no</serverDecoration><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher><action name="ToggleAlwaysOnBottom"/></windowRule>
     <windowRule identifier="chrome-localhost__-*"><serverDecoration>no</serverDecoration><skipTaskbar>yes</skipTaskbar><skipWindowSwitcher>yes</skipWindowSwitcher></windowRule>
   </windowRules>
+  <keyboard>
+    <default />
+    <keybind key="W-Tab"><action name="NextWindow"/></keybind>
+    <keybind key="W-q"><action name="Close"/></keybind>
+  </keyboard>
 </labwc_config>
 RCX
 sudo tee /usr/local/bin/aperture-session >/dev/null <<'ASS'
