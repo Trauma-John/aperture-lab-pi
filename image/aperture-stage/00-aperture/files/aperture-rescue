@@ -1,0 +1,9 @@
+#!/bin/bash
+# If the graphical login did not come up, put a plain text login on the screen (no Alt+F-keys needed).
+sleep 75
+if ! pgrep -x lightdm-gtk-greeter >/dev/null && ! pgrep -x labwc >/dev/null; then
+  systemctl stop lightdm 2>/dev/null
+  systemctl start getty@tty1
+  chvt 1 2>/dev/null
+  printf '\nAperture Lab rescue: the graphical login did not start.\nLog in here, then run:  journalctl -u lightdm -b --no-pager | tail -30\n' > /dev/tty1
+fi

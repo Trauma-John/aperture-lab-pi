@@ -17,3 +17,4 @@ systemctl set-default graphical.target
 update-alternatives --install /usr/bin/x-terminal-emulator x-terminal-emulator /usr/bin/foot 50
 update-alternatives --set x-terminal-emulator /usr/bin/foot
 mkdir -p /var/lib/aperture
+systemctl enable aperture-rescue.service ssh avahi-daemon 2>/dev/null || true

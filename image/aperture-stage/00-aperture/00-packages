@@ -31,3 +31,6 @@ swaybg
 wlr-randr
 bluez
 cifs-utils
+openssh-server
+avahi-daemon
+libnss-mdns

@@ -6,3 +6,5 @@ install -m 644 files/aperture-firstboot.service "${ROOTFS_DIR}/etc/systemd/syste
 install -d "${ROOTFS_DIR}/etc/lightdm/lightdm.conf.d" "${ROOTFS_DIR}/etc/xdg/labwc"
 install -m 644 files/50-aperture.conf "${ROOTFS_DIR}/etc/lightdm/lightdm.conf.d/50-aperture.conf"
 install -m 755 files/labwc-autostart "${ROOTFS_DIR}/etc/xdg/labwc/autostart"
+install -m 755 files/aperture-rescue "${ROOTFS_DIR}/usr/local/sbin/aperture-rescue"
+install -m 644 files/aperture-rescue.service "${ROOTFS_DIR}/etc/systemd/system/aperture-rescue.service"

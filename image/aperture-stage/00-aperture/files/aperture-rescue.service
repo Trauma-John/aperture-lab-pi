@@ -1,0 +1,11 @@
+[Unit]
+Description=Aperture Lab text-login rescue
+After=graphical.target
+ConditionPathExists=/var/lib/aperture/configured
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/aperture-rescue
+
+[Install]
+WantedBy=graphical.target
