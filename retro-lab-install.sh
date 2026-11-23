@@ -1244,6 +1244,7 @@ Icon=retroarch
 Categories=Game;
 AS
 
+sudo apt-get install -y rpi-imager >/dev/null 2>&1 || echo "  (rpi-imager not available, skipped)"
 echo "== Sounds, connections, security tools =="
 sudo apt-get install -y zenity gvfs-backends swaylock swayidle ufw unattended-upgrades pulseaudio-utils >/dev/null 2>&1 || echo "  (some helper packages were skipped)"
 cat >> ~/.config/retro-lab/config <<'CFG2'
