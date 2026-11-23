@@ -1,7 +1,7 @@
 #!/bin/bash
 # If the graphical login did not come up, put a plain text login on the screen (no Alt+F-keys needed).
 sleep 75
-if ! pgrep -x lightdm-gtk-greeter >/dev/null && ! pgrep -x labwc >/dev/null; then
+if ! pgrep -f lightdm-gtk-greeter >/dev/null && ! pgrep -f "labwc -C" >/dev/null; then
   systemctl stop lightdm 2>/dev/null
   systemctl start getty@tty1
   chvt 1 2>/dev/null
