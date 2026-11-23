@@ -307,10 +307,13 @@ window#waybar {{ background: transparent; color: {tx}; }}
 #taskbar button.active {{ background: {ac}; color: rgb({bg}); }}
 #tray, #pulseaudio, #network, #custom-power {{ background: rgba({bg},0.92); color: {tx}; border-radius: 18px; padding: 2px 16px; margin: 6px 4px; }}
 #custom-power {{ margin-right: 12px; }}
+window#waybar > box, .modules-left, .modules-right {{ opacity: 0; transition: opacity 250ms ease; }}
+window#waybar:hover > box, window#waybar:hover .modules-left, window#waybar:hover .modules-right {{ opacity: 1; }}
 """
-    wf = f"""window {{ background: rgb({bg}); border: 2px solid rgba({pn},0.25); border-radius: 22px; font-family: "DejaVu Serif", serif; font-size: 17px; color: {tx}; }}
+    wf = f"""window {{ background: transparent; font-family: "DejaVu Serif", serif; font-size: 17px; color: {tx}; }}
+#outer-box {{ background: rgb({bg}); border: 2px solid rgba({pn},0.25); border-radius: 22px; padding: 4px; }}
 #input {{ background: rgba({pn},0.1); color: {tx}; border: 1px solid rgba({pn},0.25); border-radius: 14px; margin: 10px; padding: 8px 12px; }}
-#inner-box, #outer-box, #scroll {{ background: transparent; }}
+#inner-box, #scroll {{ background: transparent; }}
 #entry {{ padding: 6px 10px; border-radius: 10px; }}
 #entry:selected {{ background: {ac}; }} #entry:selected * {{ color: rgb({bg}); }}
 #text {{ color: {tx}; }}
@@ -917,7 +920,7 @@ pkill -f lab-desk.py 2>/dev/null || true   # so a re-run loads the newest versio
 mkdir -p ~/.config/waybar ~/.config/wofi
 cat > ~/.config/waybar/config <<'WB'
 {
-  "layer": "top", "position": "bottom", "height": 48, "margin-left": 8, "margin-right": 8, "margin-bottom": 6,
+  "layer": "top", "position": "bottom", "exclusive": false, "height": 48, "margin-left": 8, "margin-right": 8, "margin-bottom": 6,
   "modules-left": ["custom/start", "wlr/taskbar"],
   "modules-right": ["tray", "network", "pulseaudio", "custom/power"],
   "custom/start": { "format": "User: @@USER@@", "on-click": "curl -s -X POST -H 'X-Lab: 1' -d apps http://localhost:8787/api/menu", "tooltip": false },
@@ -1225,6 +1228,18 @@ libretro_directory = "$HOME/.local/share/retro-lab/cores"
 libretro_info_path = "/usr/share/libretro/info"
 RA
 fi
+for pa in "logout|Log out|Power: Log out" "reboot|Restart|Power: Restart" "shutdown|Shut down|Power: Shut down" "lock|Lock|Power: Lock screen"; do
+IFS='|' read -r pk pn2 pnm <<<"$pa"
+cat > ~/.local/share/applications/lab-power-$pk.desktop <<PWD
+[Desktop Entry]
+Type=Application
+Name=$pnm
+Comment=$pn2 (with the lab sound)
+Exec=curl -s -X POST -H "X-Lab: 1" -d $pk http://localhost:8787/api/power
+Icon=system-$([ $pk = shutdown ] && echo shutdown || echo $pk)
+Categories=System;
+PWD
+done
 cat > ~/.local/share/applications/lab-terminal.desktop <<'AS'
 [Desktop Entry]
 Type=Application
