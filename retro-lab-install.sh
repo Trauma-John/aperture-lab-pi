@@ -1170,6 +1170,8 @@ for f in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
   [ -f "$f" ] && ! grep -q splash "$f" && sudo sed -i 's/$/ quiet splash plymouth.ignore-serial-consoles/' "$f" || true
 done
 sudo plymouth-set-default-theme -R aperture || echo "(boot splash step skipped, everything else still works)"
+# No boot animation on shutdown/restart (it only belongs at start-up)
+sudo systemctl mask plymouth-poweroff.service plymouth-reboot.service plymouth-halt.service plymouth-kexec.service 2>/dev/null || true
 
 echo "== 5/7 Soft retro colours for apps =="
 for v in gtk-3.0 gtk-4.0; do
