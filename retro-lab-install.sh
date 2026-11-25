@@ -426,11 +426,14 @@ def settings_state():
     st["firewall"] = sh(["systemctl", "is-active", "ufw"]).strip() == "active"
     st["tailscale"] = sh(["tailscale", "ip", "-4"]).strip().split("\n")[0] or ""
     st["roms"] = "/mnt/zimagames" in (open("/etc/fstab").read() if os.path.exists("/etc/fstab") else "")
+    cd = HOME + "/.local/share/retro-lab/cores/"
+    st["cores"] = {n: os.path.exists(cd + c + "_libretro.so") for n, c in [("PS1", "pcsx_rearmed"), ("N64", "mupen64plus_next"), ("PC Engine", "mednafen_pce"), ("Dreamcast", "flycast")]}
+    st["ps1bios"] = any(os.path.exists(HOME + "/.config/retroarch/system/scph550" + x + ".bin") for x in "012")
     st["panel"] = "lab" if sh(["pgrep", "-x", "waybar"]).strip() else "stock"
     return st
 TERM = {  # actions that need a terminal window (passwords, questions, long output)
  "login_password": "retro-login password", "login_auto": "retro-login auto", "secure": "retro-secure", "connect": "retro-connect",
- "update": "retro-update", "system_update": "sudo apt update && sudo apt full-upgrade -y", "fix_vivaldi": "retro-fix-vivaldi", "wake_setup": "retro-wake-setup", "guided_tailscale": "sudo tailscale up --operator=$USER", "roms_setup": "retro-roms", "roms_off": "retro-roms off"}
+ "update": "retro-update", "system_update": "sudo apt update && sudo apt full-upgrade -y", "fix_vivaldi": "retro-fix-vivaldi", "wake_setup": "retro-wake-setup", "guided_tailscale": "sudo tailscale up --operator=$USER", "roms_setup": "retro-roms", "roms_off": "retro-roms off", "cores": "retro-cores --force"}
 QUIET = {"panel_lab": ["retro-panel", "lab"], "panel_stock": ["retro-panel", "stock"], "rebuild": ["retro-connect", "--rebuild"], "chime": ["retro-sound", "startup"], "replay": ["lab-splash"],
          "lock_off": ["retro-lock", "off"], "lock_5": ["retro-lock", "5"], "lock_10": ["retro-lock", "10"], "lock_15": ["retro-lock", "15"], "lock_30": ["retro-lock", "30"], "lock_60": ["retro-lock", "60"]}
 def run_action(a):
@@ -807,7 +810,7 @@ async function load(force){const s=await (await fetch('/api/settings')).json(),c
  const CARDS=mkCards(s,c,sp,so);
  let h='';
  if(page==='look')h=CARDS[0]+CARDS[1]+CARDS[4];
- else if(page==='connections')h=CARDS[3]+`<div class="card"><h2>Game library (home server)</h2><div class="row"><span class="lbl">Retro Console games from the server</span><span class="${s.roms?'ok':''}">${s.roms?'Connected':'Off'}</span></div><div class="row"><span></span><span><button onclick="act('roms_setup')">Set up / change login</button> <button onclick="act('roms_off')">Turn off</button></span></div><div class="note">Keeps your games in the roms folder on the server. Works at home and away through Tailscale. If the server is off, Retro Console uses this Pi's own ROMs folder.</div></div>`;
+ else if(page==='connections')h=CARDS[3]+`<div class="card"><h2>Game library (home server)</h2><div class="row"><span class="lbl">Retro Console games from the server</span><span class="${s.roms?'ok':''}">${s.roms?'Connected':'Off'}</span></div><div class="row"><span></span><span><button onclick="act('roms_setup')">Set up / change login</button> <button onclick="act('roms_off')">Turn off</button></span></div><div class="note">Keeps your games in the roms folder on the server. Works at home and away through Tailscale. If the server is off, Retro Console uses this Pi's own ROMs folder.</div></div>+`<div class="card"><h2>Game consoles</h2>${Object.entries(s.cores||{}).map(([n,ok])=>`<div class="row"><span class="lbl">${n}</span><span class="${ok?'ok':''}">${ok?'Ready':'Not installed'}</span></div>`).join('')}<div class="row"><span class="lbl">PS1 BIOS (optional)</span><span class="${s.ps1bios?'ok':''}">${s.ps1bios?'Found':'Not added'}</span></div><div class="row"><span></span><span><button onclick="act('cores')">Install / repair cores</button></span></div><div class="note">NES, SNES, Genesis, Game Boy and GBA come with the system. Put games in the matching folder (PSX, N64, PCEngine). Your own BIOS files go in ~/.config/retroarch/system (see README.txt there).</div></div>`;
  else if(page==='desktop')h=CARDS[5];
  else h=await extra(page,s,c,CARDS);
  document.getElementById('g').innerHTML=h}
@@ -1329,16 +1332,51 @@ for p in unzip retroarch retroarch-assets libretro-core-info libretro-nestopia l
   sudo timeout 900 apt-get install -y -o DPkg::Lock::Timeout=300 -o Acquire::http::Timeout=30 -o Acquire::Retries=2 "$p" >/dev/null 2>&1 && echo "    ok" || echo "  ($p: not in Debian, using the libretro download instead)"
 done
 mkdir -p ~/ROMs/{NES,SNES,Genesis,GameBoy,GBA,N64,PSX,PCEngine} ~/.config/retroarch
-# PS1, N64, PC Engine and Dreamcast cores are not in Debian: fetch the 64-bit Pi builds from libretro
-CORES=~/.local/share/retro-lab/cores; mkdir -p "$CORES"
+# PS1, N64, PC Engine and Dreamcast cores are not in Debian: retro-cores fetches the 64-bit Pi builds from libretro
+cat > ~/.local/bin/retro-cores <<'RCO'
+#!/bin/bash
+# retro-cores : install or repair the Retro Console emulator cores (PS1, N64, PC Engine, Dreamcast)
+#               and list which consoles are ready. Safe to run again at any time.
+CORES=~/.local/share/retro-lab/cores; INFO=~/.local/share/retro-lab/info; BIOS=~/.config/retroarch/system
+BB=https://buildbot.libretro.com/nightly/linux/aarch64/latest
+mkdir -p "$CORES" "$BIOS" ~/.config/retroarch
+# Debian's own cores (NES, SNES, Genesis, Game Boy, GBA)
 for f in /usr/lib/*/libretro/*.so; do [ -f "$f" ] && ln -sf "$f" "$CORES/$(basename "$f")"; done
+# Cores Debian doesn't ship: PS1 (pcsx_rearmed), N64 (mupen64plus_next), PC Engine (mednafen_pce), Dreamcast (flycast)
 for c in pcsx_rearmed mupen64plus_next mednafen_pce flycast; do
-  if [ ! -f "$CORES/${c}_libretro.so" ]; then
+  if [ ! -s "$CORES/${c}_libretro.so" ] || [ "$1" = "--force" ]; then
     echo "  downloading core $c ..."
-    curl -fsSL --connect-timeout 15 -m 120 "https://buildbot.libretro.com/nightly/linux/aarch64/latest/${c}_libretro.so.zip" -o /tmp/core-$c.zip && unzip -oq /tmp/core-$c.zip -d "$CORES" || echo "  (skipped core $c, no download)"
-    rm -f /tmp/core-$c.zip
+    T=$(mktemp)
+    if curl -fsSL --connect-timeout 15 -m 300 "$BB/${c}_libretro.so.zip" -o "$T" && unzip -oq "$T" -d "$CORES"; then echo "    ok"
+    else echo "    (could not download $c - check the internet connection and run retro-cores again)"; fi
+    rm -f "$T"
   fi
 done
+# Core info files (lets RetroArch name the cores and pick the right one for each game)
+if [ ! -f "$INFO/pcsx_rearmed_libretro.info" ] || [ "$1" = "--force" ]; then
+  T=$(mktemp)
+  if curl -fsSL --connect-timeout 15 -m 300 https://buildbot.libretro.com/assets/frontend/info.zip -o "$T" && mkdir -p "$INFO" && unzip -oq "$T" -d "$INFO"; then :; fi
+  rm -f "$T"
+fi
+IP=/usr/share/libretro/info; [ -f "$INFO/pcsx_rearmed_libretro.info" ] && IP=$INFO
+RC=~/.config/retroarch/retroarch.cfg; touch "$RC"
+setk() { if grep -q "^$1 *=" "$RC"; then sed -i "s|^$1 *=.*|$1 = \"$2\"|" "$RC"; else echo "$1 = \"$2\"" >> "$RC"; fi; }
+setk libretro_directory "$CORES"; setk libretro_info_path "$IP"; setk system_directory "$BIOS"
+[ -f "$BIOS/README.txt" ] || cat > "$BIOS/README.txt" <<'BR'
+Put console BIOS files here (you must supply your own, dumped from consoles you own).
+PS1 (optional with pcsx_rearmed, but improves compatibility): scph5501.bin (US), scph5500.bin (Japan), scph5502.bin (Europe).
+  File names are lower case and must match exactly.
+PC Engine CD games need: syscard3.pce. Ordinary PC Engine cartridge games need nothing.
+N64 needs nothing.
+BR
+echo; echo "Retro Console cores:"
+for p in "NES|nestopia" "SNES|snes9x" "Genesis|genesis_plus_gx" "Game Boy|gambatte" "GBA|mgba" "PS1|pcsx_rearmed" "N64|mupen64plus_next" "PC Engine|mednafen_pce" "Dreamcast|flycast"; do
+  IFS='|' read -r n c <<<"$p"
+  [ -s "$CORES/${c}_libretro.so" ] && echo "  ready    $n" || echo "  MISSING  $n"
+done
+ls "$BIOS"/scph550[0-2].bin >/dev/null 2>&1 && echo "  PS1 BIOS found" || echo "  (no PS1 BIOS yet: optional, see $BIOS/README.txt)"
+RCO
+chmod +x ~/.local/bin/retro-cores
 if [ ! -f ~/.config/retroarch/retroarch.cfg ]; then
 cat > ~/.config/retroarch/retroarch.cfg <<RA
 rgui_browser_directory = "$HOME/ROMs"
@@ -1349,6 +1387,7 @@ libretro_directory = "$HOME/.local/share/retro-lab/cores"
 libretro_info_path = "/usr/share/libretro/info"
 RA
 fi
+~/.local/bin/retro-cores
 for pa in "logout|Log out|Power: Log out" "reboot|Restart|Power: Restart" "shutdown|Shut down|Power: Shut down" "lock|Lock|Power: Lock screen"; do
 IFS='|' read -r pk pn2 pnm <<<"$pa"
 cat > ~/.local/share/applications/lab-power-$pk.desktop <<PWD
